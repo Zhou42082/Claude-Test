@@ -6,12 +6,15 @@ import 'screens/home_screen.dart';
 import 'screens/settings_screen.dart';
 import 'state/device_store.dart';
 import 'state/settings_store.dart';
+import 'demo_only.dart';
+import 'services/gateway_client.dart';
 import 'web_fonts.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   final settings = SettingsStore();
   final (_, webFontLoaded) = await (settings.load(), loadWebFonts()).wait;
+  if (demoOnlyBuild && !settings.config.isComplete) await settings.save(GatewayConfig.demo);
   runApp(SmartHomeApp(settings: settings, fontFamily: webFontLoaded ? webFontFamily : null));
 }
 

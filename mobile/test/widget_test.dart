@@ -170,6 +170,22 @@ void main() {
     expect(client.demoRuns, ['mock:leak']);
     expect(find.text('已模拟：厨房漏水'), findsOneWidget);
   });
+
+  testWidgets('first run can start the built-in demo without a gateway', (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    final settings = SettingsStore();
+    await settings.load();
+    await tester.pumpWidget(SmartHomeApp(settings: settings));
+
+    await tester.ensureVisible(find.text('体验演示模式'));
+    await tester.tap(find.text('体验演示模式'));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('演示模式：设备和数据都是模拟的'), findsOneWidget);
+    expect(find.text('入户门锁'), findsOneWidget);
+    expect(find.byTooltip('演示工具'), findsOneWidget);
+    expect(settings.config.isDemo, isTrue);
+  });
 }
 
 Future<(FakeGatewayClient, DeviceStore)> pumpWithDevices(WidgetTester tester, List<Device> devices) async {

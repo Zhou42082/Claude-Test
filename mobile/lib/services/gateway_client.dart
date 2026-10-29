@@ -10,6 +10,11 @@ import '../models/device.dart';
 class GatewayConfig {
   const GatewayConfig({required this.baseUrl, required this.token});
 
+  /// 内置演示模式：不连接任何网关，由 DemoGatewayClient 在 App 内模拟
+  static const demo = GatewayConfig(baseUrl: 'demo:', token: 'demo');
+
+  bool get isDemo => baseUrl == demo.baseUrl;
+
   /// 例如 http://192.168.1.10:8000
   final String baseUrl;
   final String token;

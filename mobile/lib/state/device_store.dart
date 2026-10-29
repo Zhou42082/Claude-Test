@@ -3,6 +3,7 @@ import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 
+import '../demo/demo_gateway.dart';
 import '../models/alert.dart';
 import '../models/device.dart';
 import '../services/gateway_client.dart';
@@ -17,13 +18,21 @@ typedef GatewayClientFactory = GatewayClient Function(GatewayConfig config);
 /// 避免设备实际执行失败时界面和设备不一致。
 class DeviceStore extends ChangeNotifier {
   DeviceStore({GatewayClientFactory? clientFactory, DateTime? alertsSeenUntil, this.onAlertsSeen})
-    : _clientFactory = clientFactory ?? GatewayClient.new,
+    : _clientFactory = clientFactory ?? _defaultClient,
       _alertsSeenUntil = alertsSeenUntil;
 
   /// 告警已读位置变化时回调，用于持久化（重启 App 后旧告警不再算未读）
   final ValueChanged<DateTime>? onAlertsSeen;
 
   static const _maxRetryDelay = Duration(seconds: 30);
+
+  static GatewayClient _defaultClient(GatewayConfig config) =>
+      config.isDemo ? DemoGatewayClient() : GatewayClient(config);
+
+  bool _demo = false;
+
+  /// 当前连接的是内置演示网关
+  bool get isDemo => _demo;
   static const _maxAlerts = 200;
 
   final GatewayClientFactory _clientFactory;
@@ -136,6 +145,7 @@ class DeviceStore extends ChangeNotifier {
 
   void connect(GatewayConfig config) {
     _teardown();
+    _demo = config.isDemo;
     _devices.clear();
     _alerts.clear();
     _demoScenarios = const [];

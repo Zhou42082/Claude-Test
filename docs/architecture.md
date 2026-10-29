@@ -147,12 +147,15 @@ mobile/                  Flutter App（Android / iOS / 网页版）
     screens/                    首页、告警、演示工具、摄像头实时画面、设置
     widgets/                    设备卡片、控制面板、门锁、摄像头（截图 + 云台）、净化器
     web_fonts.dart              网页版中文字体加载
+    demo/demo_gateway.dart      内置演示网关（不需要服务器；与网关的演示模式保持一致）
   web/                          网页版入口；字体与 CanvasKit 本地化，不依赖 Google CDN
 tools/subset_cjk_font.py 生成网页版中文字体子集
 Dockerfile               网关 + 网页版 App 镜像
 docker-compose.yml       HA + Matter Server + 网关
 docker-compose.demo.yml  演示模式（只有网关）
 .github/workflows/ci.yml 测试、构建 APK / 网页版 / Docker 镜像
+.github/workflows/pages.yml 把演示网页版发布到 GitHub Pages
+render.yaml / .devcontainer/ 云端演示（Render、Codespaces）
 ```
 
 ## 5. 统一设备模型

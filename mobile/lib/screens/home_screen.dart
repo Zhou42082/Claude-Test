@@ -112,6 +112,7 @@ class _HomeScreenState extends State<HomeScreen> {
         body: Column(
           children: [
             _ConnectionBanner(status: store.status),
+            if (store.isDemo) const _DemoBanner(),
             _PlatformFilter(store: store),
             Expanded(
               child: TabBarView(
@@ -125,6 +126,33 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+class _DemoBanner extends StatelessWidget {
+  const _DemoBanner();
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Material(
+      color: scheme.tertiaryContainer,
+      child: InkWell(
+        onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const SettingsScreen())),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          child: Row(
+            children: [
+              Icon(Icons.science_outlined, size: 18, color: scheme.onTertiaryContainer),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text('演示模式：设备和数据都是模拟的，点此连接真实网关', style: TextStyle(color: scheme.onTertiaryContainer)),
+              ),
+            ],
+          ),
         ),
       ),
     );

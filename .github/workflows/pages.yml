@@ -1,0 +1,41 @@
+name: 网页版演示（GitHub Pages）
+
+# 构建只含内置演示模式的网页版，发布到 gh-pages 分支。
+# 首次使用：仓库设为公开后，Settings → Pages → Source 选 "Deploy from a branch"，分支选 gh-pages、目录 / (root)。
+on:
+  push:
+    branches: [main, claude/happy-tesla-4wh7up]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.44.0"
+          channel: stable
+          cache: true
+      - name: 构建网页版（演示模式）
+        working-directory: mobile
+        run: |
+          flutter pub get
+          flutter build web --release --base-href "/${{ github.event.repository.name }}/" --dart-define=DEMO_ONLY=true
+          touch build/web/.nojekyll
+      - name: 发布到 gh-pages 分支
+        working-directory: mobile/build/web
+        run: |
+          git init -q -b gh-pages
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -qm "Deploy web demo from ${GITHUB_SHA}"
+          git push -q -f "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" gh-pages

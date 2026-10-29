@@ -28,7 +28,7 @@ docker compose -f docker-compose.demo.yml up --build
 
 浏览器（电脑或同一局域网的手机）打开 `http://<本机IP>:8000/`，令牌 `devtoken`，演示门锁的开锁 PIN 是 `2468`。首页右上角的烧瓶图标是「演示工具」，可以模拟漏水、门铃、门锁卡住等事件。
 
-**本地没有 Docker**：可以部署到云端（Render 或 GitHub Codespaces），手机直接打开 https 网址，见 [docs/cloud-demo.md](docs/cloud-demo.md)。
+**不想装任何东西**：App 内置演示模式，首次打开点「体验演示模式」就能离线体验全部功能。网页版可以用 GitHub Pages 免费发布，iPhone 用 Safari 打开固定网址即可，见 [docs/cloud-demo.md](docs/cloud-demo.md)（也有 Render、Codespaces 的部署方式）。
 
 Android 手机安装包：GitHub 仓库 → Actions → 最新一次 CI → Artifacts 下载 `smart-home-apk`。完整测试步骤见 [docs/testing.md](docs/testing.md)。
 

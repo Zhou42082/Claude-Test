@@ -1,16 +1,37 @@
 # 在云端运行演示（本地不需要 Docker）
 
-两种方式都只运行**演示模式**（假设备 + 演示工具），不接触你家里的真实设备。
+这些方式都只运行**演示模式**（假设备 + 演示工具），不接触你家里的真实设备。
 
-| | Render | GitHub Codespaces |
-| --- | --- | --- |
-| 账号 | 用 GitHub 账号登录 render.com | 只需要 GitHub 账号 |
-| 网址 | 固定的 `https://xxx.onrender.com`，手机随时打开 | 每次启动 Codespace 时生成 |
-| 一直在线 | 15 分钟没人访问会休眠，再打开约 1 分钟唤醒 | 30 分钟没操作自动停止，需手动重新启动 |
-| 费用 | 免费套餐 | 个人账号每月有免费额度 |
-| 适合 | 手机上反复测试、发给别人试用 | 临时看一下 |
+| | GitHub Pages（推荐） | Render | GitHub Codespaces |
+| --- | --- | --- | --- |
+| 账号 | 只需要 GitHub 账号，仓库需公开 | 用 GitHub 账号登录 render.com | 只需要 GitHub 账号 |
+| 网址 | 固定的 `https://<用户名>.github.io/<仓库名>/` | 固定的 `https://xxx.onrender.com` | 每次启动 Codespace 时生成 |
+| 一直在线 | 是，打开即用 | 15 分钟没人访问会休眠，再打开约 1 分钟唤醒 | 30 分钟没操作自动停止 |
+| 原理 | App 内置演示网关，没有服务器 | 云端运行网关演示模式 | 云端运行网关演示模式 |
+| 费用 | 免费 | 免费套餐 | 个人账号每月有免费额度 |
 
-## 方式一：Render（推荐）
+## 方式零：GitHub Pages + 内置演示模式（推荐）
+
+App 内置了一个演示网关（`mobile/lib/demo/demo_gateway.dart`），设备、场景、告警、演示工具都在 App 里模拟，不需要任何服务器。CI（`.github/workflows/pages.yml`）把这个网页版发布到 `gh-pages` 分支，用 GitHub Pages 免费托管。
+
+一次性设置（都在 GitHub 仓库网页上操作）：
+
+1. **Settings → General**，拉到最下面 **Danger Zone → Change repository visibility → Make public**。免费账号的 Pages 只支持公开仓库。
+2. 确认 **Actions** 里「网页版演示（GitHub Pages）」运行成功过（每次推送都会运行；没有的话在 Actions 页面选它点 **Run workflow**）。成功后仓库里会出现 `gh-pages` 分支。
+3. **Settings → Pages**，**Source** 选 **Deploy from a branch**，**Branch** 选 `gh-pages`、目录 `/ (root)`，点 **Save**。
+4. 等 1～2 分钟，Pages 页面顶部会显示网址，形如 `https://zhou42082.github.io/Claude-Test/`。
+
+之后 iPhone 用 Safari 打开这个网址，直接进入演示模式，不需要令牌；可以「分享 → 添加到主屏幕」当 App 用。演示门锁 PIN 是 `2468`。
+
+注意：
+
+- 演示数据保存在页面里，刷新页面后设备回到初始状态、告警清空。
+- 这个网址是 https，浏览器不允许它连接家里 http 的网关；连接真实网关请用 APK 或网关自带的网页版。
+- github.io 在国内一般能访问，偶尔较慢。
+
+Android APK 和 iPhone 原生 App 也有同样的内置演示模式：首次打开时点「体验演示模式」即可，不需要网关。
+
+## 方式一：Render
 
 1. 打开 [render.com](https://render.com)，用 GitHub 账号注册登录。
 2. 控制台右上角 **New → Blueprint**，连接 GitHub 仓库 `Zhou42082/Claude-Test`。

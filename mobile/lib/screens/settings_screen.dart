@@ -6,6 +6,7 @@ import '../models/device.dart';
 import '../services/gateway_client.dart';
 import '../state/device_store.dart';
 import '../state/settings_store.dart';
+import '../demo_only.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key, this.firstRun = false});
@@ -27,9 +28,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
   @override
   void initState() {
     super.initState();
-    final config = context.read<SettingsStore>().config;
-    // 网页版通常由网关直接提供，默认填当前页面的地址
-    final defaultUrl = kIsWeb && config.baseUrl.isEmpty ? Uri.base.origin : config.baseUrl;
+    final saved = context.read<SettingsStore>().config;
+    final config = saved.isDemo ? const GatewayConfig(baseUrl: '', token: '') : saved;
+    // 网页版通常由网关直接提供，默认填当前页面的地址（只有演示的网页版除外）
+    final defaultUrl = kIsWeb && !demoOnlyBuild && config.baseUrl.isEmpty ? Uri.base.origin : config.baseUrl;
     _url = TextEditingController(text: defaultUrl);
     _token = TextEditingController(text: config.token);
   }
@@ -42,6 +44,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   GatewayConfig get _config => GatewayConfig(baseUrl: _url.text.trim(), token: _token.text.trim());
+
+  Future<void> _useDemo() async {
+    final navigator = Navigator.of(context);
+    await context.read<SettingsStore>().save(GatewayConfig.demo);
+    if (!mounted) return;
+    context.read<DeviceStore>().connect(GatewayConfig.demo);
+    if (!widget.firstRun) navigator.pop();
+  }
 
   Future<void> _testAndSave() async {
     if (!_formKey.currentState!.validate()) return;
@@ -115,6 +125,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
               child: _testing
                   ? const SizedBox.square(dimension: 20, child: CircularProgressIndicator(strokeWidth: 2))
                   : const Text('测试并保存'),
+            ),
+            const SizedBox(height: 32),
+            const Divider(),
+            const SizedBox(height: 8),
+            Text('还没有网关？', style: Theme.of(context).textTheme.titleSmall),
+            const SizedBox(height: 4),
+            const Text('演示模式在 App 内模拟一个家，包含小米、华为、涂鸦、乐橙、德施曼的设备和场景，可以模拟漏水、门铃等告警。'),
+            const SizedBox(height: 12),
+            OutlinedButton.icon(
+              onPressed: _testing ? null : _useDemo,
+              icon: const Icon(Icons.science_outlined),
+              label: const Text('体验演示模式'),
             ),
           ],
         ),
