@@ -21,6 +21,9 @@ INTEGRATION_PLATFORMS: dict[str, Platform] = {
     "tuya": Platform.TUYA,  # HA 内置涂鸦集成（智能生活 App 扫码登录）
     "localtuya": Platform.TUYA,
     "tuya_local": Platform.TUYA,
+    "imou_life": Platform.IMOU,  # 乐橙开放平台官方集成 github.com/Imou-OpenPlatform/Imou-Home-Assistant
+    "imou": Platform.IMOU,  # HA 内置乐橙集成
+    "desmanlock": Platform.DESMAN,  # 社区集成 github.com/chliny/ha-desmanlock
 }
 MANUFACTURER_HINTS: list[tuple[str, Platform]] = [
     ("huawei", Platform.HUAWEI),
@@ -28,6 +31,11 @@ MANUFACTURER_HINTS: list[tuple[str, Platform]] = [
     ("xiaomi", Platform.XIAOMI),
     ("mijia", Platform.XIAOMI),
     ("tuya", Platform.TUYA),
+    ("imou", Platform.IMOU),
+    ("乐橙", Platform.IMOU),
+    ("desman", Platform.DESMAN),
+    ("德施曼", Platform.DESMAN),
+    ("qihoo", Platform.QIHOO360),
 ]
 
 DOMAIN_TYPES: dict[str, DeviceType] = {
@@ -38,7 +46,13 @@ DOMAIN_TYPES: dict[str, DeviceType] = {
     "fan": DeviceType.FAN,
     "sensor": DeviceType.SENSOR,
     "binary_sensor": DeviceType.BINARY_SENSOR,
+    "lock": DeviceType.LOCK,
+    "camera": DeviceType.CAMERA,
 }
+
+# fan 实体满足以下任一条件时视为空气净化器：名称 / 型号含关键词，或同一设备上有 PM2.5 传感器
+PURIFIER_KEYWORDS = ("purifier", "净化")
+FILTER_KEYWORDS = ("filter", "滤芯", "滤网")
 
 # 只展示对用户有意义的传感器，信号强度、电池电压之类的诊断数据不进 App
 SENSOR_CLASSES = {"temperature", "humidity", "pm25", "carbon_dioxide", "illuminance", "power"}
@@ -46,6 +60,8 @@ BINARY_SENSOR_CLASSES = {"door", "window", "opening", "motion", "occupancy", "mo
 
 # HA 的 supported_features 位
 FAN_SET_SPEED = 1
+FAN_PRESET_MODE = 8
+CAMERA_STREAM = 2
 COVER_SET_POSITION = 4
 COVER_STOP = 8
 CLIMATE_TARGET_TEMPERATURE = 1
@@ -71,8 +87,14 @@ def map_entity(
     device: dict[str, Any] | None,
     areas: dict[str, str],
     adapter_name: str = "ha",
+    siblings: list[dict[str, Any]] | None = None,
 ) -> Device | None:
-    """把一个 HA 实体转换成统一设备；不需要展示的实体返回 None。"""
+    """把一个 HA 实体转换成统一设备；不需要展示的实体返回 None。
+
+    siblings 是同一个 HA 设备下其他实体的状态。HA 把一台净化器拆成风扇 + PM2.5 传感器 +
+    滤芯传感器等多个实体，这里把 PM2.5、滤芯、电量等合并到主实体上，App 只看到一台设备。
+    """
+    siblings = siblings or []
     entity_id: str = state["entity_id"]
     domain = entity_id.split(".", 1)[0]
     device_type = DOMAIN_TYPES.get(domain)
@@ -88,6 +110,8 @@ def map_entity(
     device_class = attrs.get("device_class") or entity.get("device_class")
     if device_type == DeviceType.SENSOR and device_class not in SENSOR_CLASSES:
         return None
+    if device_type == DeviceType.SENSOR and device_class == "pm25" and _has_domain(siblings, "fan"):
+        return None  # 已合并到净化器
     if device_type == DeviceType.BINARY_SENSOR and device_class not in BINARY_SENSOR_CLASSES:
         return None
 
@@ -100,10 +124,14 @@ def map_entity(
         or device.get("name")
         or entity_id
     )
+    if device_type == DeviceType.FAN and _is_purifier(entity_id, name, device, siblings):
+        device_type = DeviceType.AIR_PURIFIER
+
     raw_state = state.get("state")
     unified_state, capabilities = _map_state(device_type, raw_state, attrs)
     if device_class:
         unified_state["device_class"] = device_class
+    _merge_siblings(device_type, unified_state, siblings)
 
     return Device(
         id=f"{adapter_name}:{entity_id}",
@@ -141,13 +169,17 @@ def _map_state(
         case DeviceType.SWITCH:
             s["on"] = raw == "on"
             caps = list(_ONOFF)
-        case DeviceType.FAN:
+        case DeviceType.FAN | DeviceType.AIR_PURIFIER:
             s["on"] = raw == "on"
             caps = list(_ONOFF)
             if features & FAN_SET_SPEED:
                 caps.append(Action.SET_FAN_SPEED)
                 if attrs.get("percentage") is not None:
                     s["percentage"] = attrs["percentage"]
+            if features & FAN_PRESET_MODE and attrs.get("preset_modes"):
+                caps.append(Action.SET_PRESET_MODE)
+                s["preset_modes"] = attrs["preset_modes"]
+                s["preset_mode"] = attrs.get("preset_mode")
         case DeviceType.CLIMATE:
             s["hvac_mode"] = raw
             s["hvac_modes"] = attrs.get("hvac_modes", [])
@@ -178,7 +210,46 @@ def _map_state(
             s["unit"] = attrs.get("unit_of_measurement")
         case DeviceType.BINARY_SENSOR:
             s["on"] = raw == "on"
+        case DeviceType.LOCK:
+            s["lock_state"] = raw
+            caps = [Action.LOCK, Action.UNLOCK]
+        case DeviceType.CAMERA:
+            s["camera_state"] = raw
+            s["stream_supported"] = bool(features & CAMERA_STREAM)
     return s, caps
+
+
+def _has_domain(states: list[dict[str, Any]], domain: str) -> bool:
+    return any(st["entity_id"].startswith(f"{domain}.") for st in states)
+
+
+def _is_purifier(entity_id: str, name: str, device: dict[str, Any], siblings: list[dict[str, Any]]) -> bool:
+    text = " ".join(str(v).lower() for v in (entity_id, name, device.get("name"), device.get("model")) if v)
+    if any(k in text for k in PURIFIER_KEYWORDS):
+        return True
+    return any(
+        st["entity_id"].startswith("sensor.") and st.get("attributes", {}).get("device_class") == "pm25"
+        for st in siblings
+    )
+
+
+def _merge_siblings(device_type: DeviceType, s: dict[str, Any], siblings: list[dict[str, Any]]) -> None:
+    for st in siblings:
+        if not st["entity_id"].startswith("sensor."):
+            continue
+        attrs = st.get("attributes", {})
+        value = _number_or_raw(st.get("state"))
+        if not isinstance(value, float):
+            continue
+        device_class = attrs.get("device_class")
+        if device_class == "battery" and device_type != DeviceType.SENSOR:
+            s["battery"] = value
+        elif device_type == DeviceType.AIR_PURIFIER:
+            label = f"{st['entity_id']} {attrs.get('friendly_name', '')}".lower()
+            if device_class == "pm25":
+                s["pm25"] = value
+            elif attrs.get("unit_of_measurement") == "%" and any(k in label for k in FILTER_KEYWORDS):
+                s["filter_life"] = value
 
 
 def _number_or_raw(raw: str | None) -> Any:
@@ -205,6 +276,12 @@ def command_to_service(entity_id: str, command: Command) -> tuple[str, str, dict
             return "climate", "set_hvac_mode", {"hvac_mode": p["hvac_mode"]}
         case Action.SET_FAN_SPEED:
             return "fan", "set_percentage", {"percentage": p["percentage"]}
+        case Action.SET_PRESET_MODE:
+            return "fan", "set_preset_mode", {"preset_mode": p["preset_mode"]}
+        case Action.LOCK:
+            return "lock", "lock", {}
+        case Action.UNLOCK:
+            return "lock", "unlock", {}
         case Action.SET_POSITION:
             return "cover", "set_cover_position", {"position": p["position"]}
         case Action.OPEN:

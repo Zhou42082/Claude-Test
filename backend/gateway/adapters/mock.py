@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import struct
+import zlib
+
 from ..models import Action, Command, Device, DeviceEvent, DeviceType, Platform
-from .base import AdapterError, DeviceAdapter, DeviceNotFound, EventCallback
+from .base import AdapterError, DeviceAdapter, DeviceNotFound, EventCallback, MediaContent
 
 _ONOFF = [Action.TURN_ON, Action.TURN_OFF, Action.TOGGLE]
 
@@ -86,7 +89,55 @@ def _seed() -> list[Device]:
             online=False,
             state={"on": False, "device_class": "door"},
         ),
+        Device(
+            id="mock:entrance_cam",
+            name="门口摄像头",
+            type=DeviceType.CAMERA,
+            platform=Platform.IMOU,
+            room="门口",
+            state={"camera_state": "idle", "stream_supported": False},
+        ),
+        Device(
+            id="mock:entrance_lock",
+            name="入户门锁",
+            type=DeviceType.LOCK,
+            platform=Platform.DESMAN,
+            room="门口",
+            state={"lock_state": "locked", "battery": 76},
+            capabilities=[Action.LOCK, Action.UNLOCK],
+        ),
+        Device(
+            id="mock:bedroom_purifier",
+            name="卧室空气净化器",
+            type=DeviceType.AIR_PURIFIER,
+            platform=Platform.TUYA,
+            room="卧室",
+            state={
+                "on": True,
+                "percentage": 50,
+                "preset_mode": "auto",
+                "preset_modes": ["auto", "sleep", "strong"],
+                "pm25": 18,
+                "filter_life": 63,
+            },
+            capabilities=[*_ONOFF, Action.SET_FAN_SPEED, Action.SET_PRESET_MODE],
+        ),
     ]
+
+
+def _solid_png(width: int, height: int, rgb: tuple[int, int, int]) -> bytes:
+    """生成纯色 PNG，作为演示摄像头的画面。"""
+
+    def chunk(kind: bytes, data: bytes) -> bytes:
+        return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data))
+
+    row = b"\x00" + bytes(rgb) * width
+    return (
+        b"\x89PNG\r\n\x1a\n"
+        + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0))
+        + chunk(b"IDAT", zlib.compress(row * height))
+        + chunk(b"IEND", b"")
+    )
 
 
 class MockAdapter(DeviceAdapter):
@@ -104,6 +155,12 @@ class MockAdapter(DeviceAdapter):
 
     async def list_devices(self) -> list[Device]:
         return [d.model_copy(deep=True) for d in self._devices.values()]
+
+    async def snapshot(self, native_id: str) -> MediaContent:
+        device = self._devices.get(self.device_id(native_id))
+        if device is None or device.type != DeviceType.CAMERA:
+            raise DeviceNotFound(native_id)
+        return MediaContent(_solid_png(320, 180, (46, 125, 107)), "image/png")
 
     async def execute(self, native_id: str, command: Command) -> None:
         device = self._devices.get(self.device_id(native_id))
@@ -149,6 +206,14 @@ class MockAdapter(DeviceAdapter):
                 s["position"] = 0
             case Action.STOP:
                 pass
+            case Action.SET_PRESET_MODE:
+                if p["preset_mode"] not in s.get("preset_modes", []):
+                    raise AdapterError(f"不支持的模式 {p['preset_mode']}")
+                s["preset_mode"] = p["preset_mode"]
+            case Action.LOCK:
+                s["lock_state"] = "locked"
+            case Action.UNLOCK:
+                s["lock_state"] = "unlocked"
 
         if self._on_event:
             await self._on_event(DeviceEvent(type="device_updated", device=device.model_copy(deep=True)))

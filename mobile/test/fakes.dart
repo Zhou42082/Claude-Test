@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:smart_home/models/device.dart';
 import 'package:smart_home/services/gateway_client.dart';
@@ -26,6 +27,22 @@ class FakeGatewayClient extends GatewayClient {
     if (commandError != null) throw commandError!;
   }
 
+  /// 1x1 透明 PNG
+  static final snapshotBytes = Uint8List.fromList(const [
+    0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52, //
+    0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00, 0x00, 0x1F, 0x15, 0xC4,
+    0x89, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9C, 0x63, 0x00, 0x01, 0x00, 0x00,
+    0x05, 0x00, 0x01, 0x0D, 0x0A, 0x2D, 0xB4, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE,
+    0x42, 0x60, 0x82,
+  ]);
+  int snapshotCalls = 0;
+
+  @override
+  Future<Uint8List> fetchSnapshot(String deviceId) async {
+    snapshotCalls++;
+    return snapshotBytes;
+  }
+
   @override
   void close() {}
 }
@@ -48,5 +65,42 @@ Device thermometer() => Device.fromJson({
   'platform': 'xiaomi',
   'room': '客厅',
   'state': {'value': 24.56, 'unit': '°C', 'device_class': 'temperature'},
+  'capabilities': [],
+});
+
+Device frontLock({String lockState = 'locked'}) => Device.fromJson({
+  'id': 'ha:lock.front',
+  'name': '入户门锁',
+  'type': 'lock',
+  'platform': 'desman',
+  'room': '门口',
+  'state': {'lock_state': lockState, 'battery': 76},
+  'capabilities': ['lock', 'unlock'],
+});
+
+Device purifier() => Device.fromJson({
+  'id': 'ha:fan.purifier',
+  'name': '净化器',
+  'type': 'air_purifier',
+  'platform': 'tuya',
+  'room': '卧室',
+  'state': {
+    'on': true,
+    'percentage': 50,
+    'preset_mode': 'auto',
+    'preset_modes': ['auto', 'sleep'],
+    'pm25': 82,
+    'filter_life': 8,
+  },
+  'capabilities': ['turn_on', 'turn_off', 'toggle', 'set_fan_speed', 'set_preset_mode'],
+});
+
+Device doorCamera() => Device.fromJson({
+  'id': 'ha:camera.door',
+  'name': '门口摄像头',
+  'type': 'camera',
+  'platform': 'imou',
+  'room': '门口',
+  'state': {'camera_state': 'idle', 'stream_supported': true},
   'capabilities': [],
 });

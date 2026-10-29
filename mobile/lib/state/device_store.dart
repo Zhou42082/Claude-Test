@@ -110,6 +110,12 @@ class DeviceStore extends ChangeNotifier {
     }
   }
 
+  Future<Uint8List> snapshot(String deviceId) => _requireClient().fetchSnapshot(deviceId);
+
+  Future<Uri> streamUri(String deviceId) => _requireClient().fetchStreamUri(deviceId);
+
+  GatewayClient _requireClient() => _client ?? (throw GatewayException('尚未连接网关'));
+
   /// 开关类操作：优先使用明确的 turn_on / turn_off，避免 toggle 在状态不同步时反向操作
   Future<void> setPower(Device device, bool on) {
     final action = on ? DeviceAction.turnOn : DeviceAction.turnOff;

@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
 import 'package:web_socket_channel/web_socket_channel.dart';
@@ -81,6 +82,27 @@ class GatewayClient {
     );
     final channel = WebSocketChannel.connect(wsUri);
     return channel.stream.map((raw) => _parseEvent(raw as String)).where((e) => e != null).cast();
+  }
+
+  /// 摄像头当前画面（JPEG / PNG 字节）
+  Future<Uint8List> fetchSnapshot(String deviceId) async {
+    final resp = await _http.get(
+      _uri('/api/devices/${Uri.encodeComponent(deviceId)}/snapshot'),
+      headers: {'Authorization': 'Bearer ${config.token}'},
+    );
+    _check(resp);
+    return resp.bodyBytes;
+  }
+
+  /// 摄像头实时视频的 HLS 地址。地址中带一次性令牌，播放器不需要额外的鉴权头。
+  Future<Uri> fetchStreamUri(String deviceId) async {
+    final resp = await _http.post(
+      _uri('/api/devices/${Uri.encodeComponent(deviceId)}/stream'),
+      headers: _headers,
+    );
+    _check(resp);
+    final path = (jsonDecode(utf8.decode(resp.bodyBytes)) as Map)['url'] as String;
+    return _uri(path);
   }
 
   void close() => _http.close();

@@ -11,11 +11,32 @@ TOKEN = "test-token"
 AUTH = {"Authorization": f"Bearer {TOKEN}"}
 
 
+PIN = "2468"
+
+
+def make_client(unlock_pin=""):
+    app = create_app(
+        Settings(token=TOKEN, adapters=("mock",), unlock_pin=unlock_pin), adapters=[MockAdapter()]
+    )
+    return TestClient(app)
+
+
 @pytest.fixture
 def client():
-    app = create_app(Settings(token=TOKEN, adapters=("mock",)), adapters=[MockAdapter()])
-    with TestClient(app) as c:
+    with make_client() as c:
         yield c
+
+
+@pytest.fixture
+def pin_client():
+    with make_client(unlock_pin=PIN) as c:
+        yield c
+
+
+def command(client, device_id, action, **params):
+    return client.post(
+        f"/api/devices/{device_id}/commands", json={"action": action, "params": params}, headers=AUTH
+    )
 
 
 def test_requires_token(client):
@@ -26,8 +47,8 @@ def test_requires_token(client):
 
 def test_list_devices_covers_all_platforms(client):
     devices = client.get("/api/devices", headers=AUTH).json()
-    assert {d["platform"] for d in devices} == {"xiaomi", "huawei", "tuya"}
-    assert client.get("/api/rooms", headers=AUTH).json() == sorted(["客厅", "卧室", "厨房"])
+    assert {d["platform"] for d in devices} == {"xiaomi", "huawei", "tuya", "imou", "desman"}
+    assert client.get("/api/rooms", headers=AUTH).json() == sorted(["客厅", "卧室", "厨房", "门口"])
 
 
 def test_command_updates_state_and_pushes_event(client):
@@ -87,3 +108,45 @@ def test_invalid_params_rejected(client):
 def test_command_param_validation(params):
     with pytest.raises(ValidationError):
         Command(action=Action.SET_BRIGHTNESS, params=params)
+
+
+def test_unlock_disabled_without_configured_pin(client):
+    assert command(client, "mock:entrance_lock", "unlock", pin="2468").status_code == 403
+    # 上锁不需要 PIN
+    assert command(client, "mock:entrance_lock", "lock").status_code == 202
+
+
+def test_unlock_requires_correct_pin(pin_client):
+    assert command(pin_client, "mock:entrance_lock", "unlock").status_code == 403
+    assert command(pin_client, "mock:entrance_lock", "unlock", pin="0000").status_code == 403
+    assert command(pin_client, "mock:entrance_lock", "unlock", pin=PIN).status_code == 202
+    lock = pin_client.get("/api/devices/mock:entrance_lock", headers=AUTH).json()
+    assert lock["state"]["lock_state"] == "unlocked"
+
+
+def test_unlock_locks_out_after_repeated_failures(pin_client):
+    for _ in range(5):
+        assert command(pin_client, "mock:entrance_lock", "unlock", pin="0000").status_code == 403
+    # 锁定期间正确的 PIN 也被拒绝
+    assert command(pin_client, "mock:entrance_lock", "unlock", pin=PIN).status_code == 429
+
+
+def test_purifier_preset_mode(client):
+    assert command(client, "mock:bedroom_purifier", "set_preset_mode", preset_mode="sleep").status_code == 202
+    purifier = client.get("/api/devices/mock:bedroom_purifier", headers=AUTH).json()
+    assert purifier["state"]["preset_mode"] == "sleep"
+    assert command(client, "mock:bedroom_purifier", "set_preset_mode").status_code == 422
+
+
+def test_camera_snapshot_and_stream(client):
+    resp = client.get("/api/devices/mock:entrance_cam/snapshot", headers=AUTH)
+    assert resp.status_code == 200
+    assert resp.headers["content-type"] == "image/png"
+    assert resp.content.startswith(b"\x89PNG")
+
+    assert client.get("/api/devices/mock:entrance_cam/snapshot").status_code == 401
+    assert client.get("/api/devices/mock:living_light/snapshot", headers=AUTH).status_code == 422
+    # 演示摄像头没有视频流
+    assert client.post("/api/devices/mock:entrance_cam/stream", headers=AUTH).status_code == 502
+    # 没有启用 HA 适配器时 HLS 代理无内容
+    assert client.get("/api/hls/abc/master_playlist.m3u8").status_code == 404

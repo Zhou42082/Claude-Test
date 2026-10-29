@@ -17,3 +17,5 @@ class Settings:
     ha_url: str = field(default_factory=lambda: os.environ.get("HA_URL", "http://localhost:8123"))
     # HA 长期访问令牌：HA 个人资料 -> 安全 -> 长期访问令牌
     ha_token: str = field(default_factory=lambda: os.environ.get("HA_TOKEN", ""))
+    # 远程开锁 PIN（4 位以上数字）。不设置则禁止通过 App 开锁，只能上锁。
+    unlock_pin: str = field(default_factory=lambda: os.environ.get("GATEWAY_UNLOCK_PIN", ""))

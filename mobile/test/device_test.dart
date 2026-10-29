@@ -43,4 +43,25 @@ void main() {
     });
     expect(door.summary, '已打开');
   });
+
+  test('lock, purifier and camera', () {
+    final lock = frontLock();
+    expect(lock.type, DeviceType.lock);
+    expect(lock.platform, DevicePlatform.desman);
+    expect(lock.isLocked, isTrue);
+    expect(lock.isOn, isFalse);
+    expect(lock.hasPowerSwitch, isFalse);
+    expect(lock.summary, '已上锁 · 电量 76%');
+    expect(frontLock(lockState: 'jammed').summary, '锁舌卡住 · 电量 76%');
+
+    final p = purifier();
+    expect(p.type, DeviceType.airPurifier);
+    expect(p.summary, 'PM2.5 82 · 自动');
+    expect(p.presetModes, ['auto', 'sleep']);
+
+    final cam = doorCamera();
+    expect(cam.platform, DevicePlatform.imou);
+    expect(cam.streamSupported, isTrue);
+    expect(cam.summary, '在线');
+  });
 }

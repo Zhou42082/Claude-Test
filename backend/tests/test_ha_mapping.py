@@ -129,3 +129,95 @@ def test_cover_without_position_infers_from_state():
 )
 def test_command_to_service(entity_id, command, expected):
     assert command_to_service(entity_id, command) == expected
+
+
+def sensor(entity_id, value, device_class=None, unit=None, name=""):
+    attrs = {"friendly_name": name}
+    if device_class:
+        attrs["device_class"] = device_class
+    if unit:
+        attrs["unit_of_measurement"] = unit
+    return {"entity_id": entity_id, "state": str(value), "attributes": attrs}
+
+
+PURIFIER_FAN = {
+    "entity_id": "fan.bedroom",
+    "state": "on",
+    "attributes": {
+        "friendly_name": "卧室",
+        "supported_features": 1 | 8,
+        "percentage": 40,
+        "preset_modes": ["auto", "sleep"],
+        "preset_mode": "auto",
+    },
+}
+
+
+def test_fan_with_pm25_sibling_becomes_purifier():
+    siblings = [
+        sensor("sensor.bedroom_pm25", 12, "pm25", "µg/m³"),
+        sensor("sensor.bedroom_filter_life", 63, unit="%", name="滤芯剩余寿命"),
+        sensor("sensor.bedroom_battery", 80, "battery", "%"),
+    ]
+    entity = {"entity_id": "fan.bedroom", "platform": "tuya", "device_id": "d1"}
+    result = map_entity(PURIFIER_FAN, entity, {"id": "d1"}, {}, siblings=siblings)
+
+    assert result.type == DeviceType.AIR_PURIFIER
+    assert result.platform == Platform.TUYA
+    assert result.state["pm25"] == 12
+    assert result.state["filter_life"] == 63
+    assert result.state["preset_mode"] == "auto"
+    assert Action.SET_PRESET_MODE in result.capabilities
+    assert Action.SET_FAN_SPEED in result.capabilities
+
+
+def test_purifier_detected_by_model_name():
+    fan = {**PURIFIER_FAN, "attributes": {"friendly_name": "风扇"}}
+    result = map_entity(fan, None, {"model": "Air Purifier 4"}, {})
+    assert result.type == DeviceType.AIR_PURIFIER
+    assert Action.SET_PRESET_MODE not in result.capabilities
+
+
+def test_plain_fan_stays_fan_and_pm25_sensor_merged_away():
+    assert map_entity({**PURIFIER_FAN, "attributes": {}}, None, None, {}).type == DeviceType.FAN
+    pm25 = sensor("sensor.bedroom_pm25", 12, "pm25")
+    assert map_entity(pm25, None, None, {}, siblings=[PURIFIER_FAN]) is None
+    # 独立的 PM2.5 传感器照常展示
+    assert map_entity(pm25, None, None, {}).type == DeviceType.SENSOR
+
+
+def test_lock_from_desman_integration():
+    state = {"entity_id": "lock.front_door", "state": "locked", "attributes": {"friendly_name": "入户门"}}
+    entity = {"entity_id": "lock.front_door", "platform": "desmanlock", "device_id": "d1"}
+    result = map_entity(
+        state, entity, {"id": "d1"}, {}, siblings=[sensor("sensor.lock_battery", 55, "battery")]
+    )
+    assert result.type == DeviceType.LOCK
+    assert result.platform == Platform.DESMAN
+    assert result.state == {"lock_state": "locked", "battery": 55.0}
+    assert result.capabilities == [Action.LOCK, Action.UNLOCK]
+
+
+def test_camera_from_imou_integration():
+    state = {"entity_id": "camera.door", "state": "streaming", "attributes": {"supported_features": 2}}
+    result = map_entity(state, {"platform": "imou_life"}, None, {})
+    assert result.type == DeviceType.CAMERA
+    assert result.platform == Platform.IMOU
+    assert result.state == {"camera_state": "streaming", "stream_supported": True}
+    no_stream = {**state, "attributes": {}}
+    assert map_entity(no_stream, None, None, {}).state["stream_supported"] is False
+
+
+@pytest.mark.parametrize(
+    ("command", "expected"),
+    [
+        (Command(action=Action.LOCK), ("lock", "lock", {})),
+        (Command(action=Action.UNLOCK), ("lock", "unlock", {})),
+        (
+            Command(action=Action.SET_PRESET_MODE, params={"preset_mode": "sleep"}),
+            ("fan", "set_preset_mode", {"preset_mode": "sleep"}),
+        ),
+    ],
+)
+def test_new_commands_to_service(command, expected):
+    assert command_to_service("lock.x" if expected[0] == "lock" else "fan.x", command) == expected

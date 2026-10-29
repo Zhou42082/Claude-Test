@@ -5,8 +5,8 @@ from __future__ import annotations
 import asyncio
 import logging
 
-from .adapters.base import DeviceAdapter, DeviceNotFound
-from .models import Command, Device, DeviceEvent
+from .adapters.base import DeviceAdapter, DeviceNotFound, MediaContent
+from .models import Command, Device, DeviceEvent, DeviceType
 
 log = logging.getLogger(__name__)
 
@@ -49,8 +49,32 @@ class DeviceHub:
         device = self.get_device(device_id)
         if command.action not in device.capabilities:
             raise CapabilityError(f"设备 {device.name} 不支持 {command.action}")
+        adapter, native_id = self._route(device_id)
+        await adapter.execute(native_id, command)
+
+    async def snapshot(self, device_id: str) -> MediaContent:
+        adapter, native_id = self._route_camera(device_id)
+        return await adapter.snapshot(native_id)
+
+    async def stream_url(self, device_id: str) -> str:
+        adapter, native_id = self._route_camera(device_id)
+        return await adapter.stream_url(native_id)
+
+    async def fetch_hls(self, path: str) -> MediaContent | None:
+        for adapter in self._adapters.values():
+            if (media := await adapter.fetch_hls(path)) is not None:
+                return media
+        return None
+
+    def _route(self, device_id: str) -> tuple[DeviceAdapter, str]:
         adapter_name, native_id = device_id.split(":", 1)
-        await self._adapters[adapter_name].execute(native_id, command)
+        return self._adapters[adapter_name], native_id
+
+    def _route_camera(self, device_id: str) -> tuple[DeviceAdapter, str]:
+        device = self.get_device(device_id)
+        if device.type != DeviceType.CAMERA:
+            raise CapabilityError(f"设备 {device.name} 不是摄像头")
+        return self._route(device_id)
 
     def subscribe(self) -> asyncio.Queue[DeviceEvent | None]:
         """订阅设备事件。队列中收到 None 表示订阅已被丢弃，客户端应重连以获取完整快照。"""

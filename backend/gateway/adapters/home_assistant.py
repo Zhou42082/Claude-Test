@@ -1,6 +1,7 @@
 """通过 Home Assistant WebSocket API 接入设备。
 
-小米（官方 xiaomi_home 集成）、涂鸦（内置 tuya 集成）、华为（Matter 等）设备都先接入 HA，
+小米（官方 xiaomi_home 集成）、涂鸦（内置 tuya 集成）、华为（huawei_smarthome / Matter）、
+乐橙（imou_life）、德施曼（desmanlock）等设备都先接入 HA，
 网关只需要对接 HA 这一个上游，就能拿到所有平台的设备。
 """
 
@@ -11,19 +12,23 @@ import contextlib
 import itertools
 import json
 import logging
+import re
 from typing import Any
 
+import httpx
 from websockets.asyncio.client import ClientConnection, connect
 from websockets.exceptions import ConnectionClosed
 
 from ..models import Command, Device, DeviceEvent
-from .base import AdapterError, DeviceAdapter, DeviceNotFound, EventCallback
+from .base import AdapterError, DeviceAdapter, DeviceNotFound, EventCallback, MediaContent
 from .ha_mapping import command_to_service, map_entity
 
 log = logging.getLogger(__name__)
 
 REQUEST_TIMEOUT = 10
 MAX_BACKOFF = 60
+# HA 返回的 HLS 地址形如 /api/hls/<一次性令牌>/master_playlist.m3u8，后续分片也在同一目录下
+_HLS_PATH = re.compile(r"^[A-Za-z0-9_\-]+(/[A-Za-z0-9_\-.]+)*$")
 
 
 class HomeAssistantAdapter(DeviceAdapter):
@@ -31,7 +36,9 @@ class HomeAssistantAdapter(DeviceAdapter):
 
     def __init__(self, url: str, token: str) -> None:
         # http://host:8123 -> ws://host:8123/api/websocket
-        self._ws_url = url.rstrip("/").replace("http", "ws", 1) + "/api/websocket"
+        self._http_url = url.rstrip("/")
+        self._ws_url = self._http_url.replace("http", "ws", 1) + "/api/websocket"
+        self._http: httpx.AsyncClient | None = None
         self._token = token
         self._on_event: EventCallback | None = None
         self._ws: ClientConnection | None = None
@@ -43,10 +50,17 @@ class HomeAssistantAdapter(DeviceAdapter):
         self._entities: dict[str, dict[str, Any]] = {}
         self._devices: dict[str, dict[str, Any]] = {}
         self._areas: dict[str, str] = {}
+        self._states: dict[str, dict[str, Any]] = {}  # entity_id -> HA 原始状态
+        self._by_device: dict[str, set[str]] = {}  # HA device_id -> entity_ids
         self._mapped: dict[str, Device] = {}  # entity_id -> Device
 
     async def start(self, on_event: EventCallback) -> None:
         self._on_event = on_event
+        self._http = httpx.AsyncClient(
+            base_url=self._http_url,
+            headers={"Authorization": f"Bearer {self._token}"},
+            timeout=REQUEST_TIMEOUT,
+        )
         self._task = asyncio.create_task(self._run())
         # 首次连接失败不阻塞网关启动，后台会持续重连
         with contextlib.suppress(TimeoutError):
@@ -57,6 +71,8 @@ class HomeAssistantAdapter(DeviceAdapter):
             self._task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await self._task
+        if self._http:
+            await self._http.aclose()
 
     async def list_devices(self) -> list[Device]:
         return list(self._mapped.values())
@@ -74,6 +90,40 @@ class HomeAssistantAdapter(DeviceAdapter):
                 "target": {"entity_id": native_id},
             }
         )
+
+    async def snapshot(self, native_id: str) -> MediaContent:
+        self._require_camera(native_id)
+        return await self._get(f"/api/camera_proxy/{native_id}")
+
+    async def stream_url(self, native_id: str) -> str:
+        device = self._require_camera(native_id)
+        if not device.state.get("stream_supported"):
+            raise AdapterError(f"{device.name} 不支持实时视频")
+        result = await self._request({"type": "camera/stream", "entity_id": native_id, "format": "hls"})
+        return result["url"]
+
+    async def fetch_hls(self, path: str) -> MediaContent | None:
+        # 请求会带上 HA 令牌，必须防止路径穿越到 /api/hls/ 之外
+        if not _HLS_PATH.match(path) or ".." in path:
+            return None
+        return await self._get(f"/api/hls/{path}")
+
+    def _require_camera(self, native_id: str) -> Device:
+        device = self._mapped.get(native_id)
+        if device is None or not native_id.startswith("camera."):
+            raise DeviceNotFound(native_id)
+        return device
+
+    async def _get(self, path: str) -> MediaContent:
+        if self._http is None:
+            raise AdapterError("Home Assistant 未连接")
+        try:
+            resp = await self._http.get(path)
+        except httpx.HTTPError as exc:
+            raise AdapterError(f"请求 Home Assistant 失败: {exc}") from exc
+        if resp.status_code != 200:
+            raise AdapterError(f"Home Assistant 返回 {resp.status_code}")
+        return MediaContent(resp.content, resp.headers.get("content-type", "application/octet-stream"))
 
     # ---- 连接管理 ----
 
@@ -126,11 +176,16 @@ class HomeAssistantAdapter(DeviceAdapter):
         self._entities = {e["entity_id"]: e for e in entities}
         self._devices = {d["id"]: d for d in devices}
         self._areas = {a["area_id"]: a["name"] for a in areas}
+        self._by_device = {}
+        for e in entities:
+            if e.get("device_id"):
+                self._by_device.setdefault(e["device_id"], set()).add(e["entity_id"])
+        self._states = {st["entity_id"]: st for st in states}
 
         previous = self._mapped
         self._mapped = {}
-        for state in states:
-            await self._apply_state(state["entity_id"], state, notify=False)
+        for entity_id in self._states:
+            await self._remap(entity_id, notify=False)
         await self._request({"type": "subscribe_events", "event_type": "state_changed"})
 
         # 重连后状态可能已变化，统一推送一次
@@ -176,15 +231,37 @@ class HomeAssistantAdapter(DeviceAdapter):
 
     async def _apply_state(self, entity_id: str, state: dict[str, Any] | None, notify: bool = True) -> None:
         if state is None:  # 实体被删除
+            self._states.pop(entity_id, None)
             removed = self._mapped.pop(entity_id, None)
             if removed and notify and self._on_event:
                 await self._on_event(DeviceEvent(type="device_removed", device=removed))
-            return
+        else:
+            self._states[entity_id] = state
+        # 同一 HA 设备下的其他实体可能合并了这个实体的数据（如净化器的 PM2.5），一起刷新
+        for affected in self._same_device(entity_id):
+            await self._remap(affected, notify)
 
+    def _same_device(self, entity_id: str) -> set[str]:
+        entity = self._entities.get(entity_id) or {}
+        return {entity_id} | self._by_device.get(entity.get("device_id") or "", set())
+
+    async def _remap(self, entity_id: str, notify: bool = True) -> None:
+        state = self._states.get(entity_id)
+        if state is None:
+            return
         entity = self._entities.get(entity_id)
         device_entry = self._devices.get(entity.get("device_id")) if entity else None
-        device = map_entity(state, entity, device_entry, self._areas, self.name)
+        siblings = [self._states[e] for e in self._same_device(entity_id) - {entity_id} if e in self._states]
+        device = map_entity(state, entity, device_entry, self._areas, self.name, siblings)
+
+        old = self._mapped.get(entity_id)
         if device is None:
+            if old is not None:
+                del self._mapped[entity_id]
+                if notify and self._on_event:
+                    await self._on_event(DeviceEvent(type="device_removed", device=old))
+            return
+        if device == old:
             return
         self._mapped[entity_id] = device
         if notify and self._on_event:

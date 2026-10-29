@@ -3,6 +3,9 @@ import 'package:provider/provider.dart';
 
 import '../models/device.dart';
 import '../state/device_store.dart';
+import 'air_quality_view.dart';
+import 'camera_snapshot_view.dart';
+import 'lock_controls.dart';
 import 'platform_badge.dart';
 
 /// 设备详情 / 控制面板。根据设备的 capabilities 动态展示控件。
@@ -70,6 +73,9 @@ class DeviceControlSheet extends StatelessWidget {
                   child: Text(device.summary, style: theme.textTheme.displaySmall),
                 ),
               ),
+            if (device.type == DeviceType.lock) LockControls(device: device),
+            if (device.type == DeviceType.camera) CameraSnapshotView(device: device),
+            if (device.type == DeviceType.airPurifier) AirQualityView(device: device),
             if (device.hasPowerSwitch)
               SwitchListTile(
                 contentPadding: EdgeInsets.zero,
@@ -108,6 +114,23 @@ class DeviceControlSheet extends StatelessWidget {
                 enabled: enabled,
                 onCommit: (v) => send(DeviceAction.setFanSpeed, {'percentage': v.round()}),
               ),
+            if (device.can(DeviceAction.setPresetMode)) ...[
+              const Text('模式'),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                children: [
+                  for (final mode in device.presetModes)
+                    ChoiceChip(
+                      label: Text(presetModeLabel(mode)),
+                      selected: device.presetMode == mode,
+                      onSelected: enabled
+                          ? (_) => send(DeviceAction.setPresetMode, {'preset_mode': mode})
+                          : null,
+                    ),
+                ],
+              ),
+            ],
             if (device.type == DeviceType.cover) ..._coverControls(device, send),
           ],
         ),

@@ -13,7 +13,10 @@ class Platform(StrEnum):
 
     XIAOMI = "xiaomi"  # 小米 / 米家
     HUAWEI = "huawei"  # 华为智慧生活 (HiLink)
-    TUYA = "tuya"  # 涂鸦智能生活 (Smart Life)
+    TUYA = "tuya"  # 涂鸦智能生活 (Smart Life)，App Store 上的「智能生活 - 智慧家居」也是它
+    IMOU = "imou"  # 乐橙
+    DESMAN = "desman"  # 德施曼
+    QIHOO360 = "qihoo360"  # 360 智能家居
     OTHER = "other"
 
 
@@ -25,6 +28,9 @@ class DeviceType(StrEnum):
     FAN = "fan"
     SENSOR = "sensor"
     BINARY_SENSOR = "binary_sensor"
+    LOCK = "lock"
+    CAMERA = "camera"
+    AIR_PURIFIER = "air_purifier"
 
 
 class Action(StrEnum):
@@ -40,7 +46,18 @@ class Action(StrEnum):
     OPEN = "open"
     CLOSE = "close"
     STOP = "stop"
+    SET_PRESET_MODE = "set_preset_mode"
+    LOCK = "lock"
+    UNLOCK = "unlock"
 
+
+# 敏感动作：网关需要额外校验开锁 PIN（见 config.Settings.unlock_pin）
+SENSITIVE_ACTIONS = frozenset({Action.UNLOCK})
+# 需要字符串参数的动作：动作 -> 参数名
+STRING_PARAMS: dict[Action, str] = {
+    Action.SET_HVAC_MODE: "hvac_mode",
+    Action.SET_PRESET_MODE: "preset_mode",
+}
 
 # 需要数值参数的动作：动作 -> (参数名, 最小值, 最大值)
 NUMERIC_PARAMS: dict[Action, tuple[str, float, float]] = {
@@ -66,6 +83,14 @@ class Device(BaseModel):
       position: int 0-100          窗帘开合度
       moving: str                  opening / closing（窗帘运动中）
       percentage: int 0-100        风速
+      preset_mode: str             风扇 / 净化器模式（auto、sleep 等，取值来自设备）
+      preset_modes: list[str]      支持的模式
+      pm25: float                  PM2.5（净化器，来自同一设备的传感器）
+      filter_life: float 0-100     滤芯剩余寿命（净化器）
+      lock_state: str              门锁状态 locked/unlocked/locking/unlocking/jammed/open
+      battery: float 0-100         电量（门锁、传感器等电池设备）
+      camera_state: str            摄像头状态 idle/streaming/recording
+      stream_supported: bool       摄像头是否支持实时视频
       value: Any, unit: str        传感器读数及单位
     """
 
@@ -92,9 +117,10 @@ class Command(BaseModel):
                 raise ValueError(f"动作 {self.action} 需要数值参数 '{key}'")
             if not lo <= value <= hi:
                 raise ValueError(f"参数 '{key}' 必须在 {lo} 到 {hi} 之间")
-        elif self.action == Action.SET_HVAC_MODE:
-            if not isinstance(self.params.get("hvac_mode"), str):
-                raise ValueError("动作 set_hvac_mode 需要字符串参数 'hvac_mode'")
+        elif self.action in STRING_PARAMS:
+            key = STRING_PARAMS[self.action]
+            if not isinstance(self.params.get(key), str):
+                raise ValueError(f"动作 {self.action} 需要字符串参数 '{key}'")
         return self
 
 
