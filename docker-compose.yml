@@ -1,0 +1,33 @@
+# 家庭服务器一键部署：Home Assistant（设备中枢）+ Matter Server + 统一网关
+# Linux 下使用 host 网络，便于 HA 做 mDNS / Matter 局域网设备发现。
+services:
+  homeassistant:
+    image: ghcr.io/home-assistant/home-assistant:stable
+    container_name: homeassistant
+    network_mode: host
+    restart: unless-stopped
+    volumes:
+      - ./data/homeassistant:/config
+      - /etc/localtime:/etc/localtime:ro
+    environment:
+      - TZ=Asia/Shanghai
+
+  # 华为等 Matter 设备接入 HA 需要 Matter Server
+  matter-server:
+    image: ghcr.io/home-assistant-libs/python-matter-server:stable
+    container_name: matter-server
+    network_mode: host
+    restart: unless-stopped
+    security_opt:
+      - apparmor=unconfined
+    volumes:
+      - ./data/matter:/data
+
+  gateway:
+    build: ./backend
+    container_name: smarthome-gateway
+    network_mode: host
+    restart: unless-stopped
+    env_file: .env
+    depends_on:
+      - homeassistant
