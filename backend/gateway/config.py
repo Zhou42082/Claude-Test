@@ -1,0 +1,19 @@
+from __future__ import annotations
+
+import os
+from dataclasses import dataclass, field
+
+
+@dataclass(frozen=True)
+class Settings:
+    # App 访问网关用的令牌。生产环境务必设置为足够长的随机串。
+    token: str = field(default_factory=lambda: os.environ.get("GATEWAY_TOKEN", ""))
+    # 启用的适配器，逗号分隔：mock, ha
+    adapters: tuple[str, ...] = field(
+        default_factory=lambda: tuple(
+            a.strip() for a in os.environ.get("GATEWAY_ADAPTERS", "mock").split(",") if a.strip()
+        )
+    )
+    ha_url: str = field(default_factory=lambda: os.environ.get("HA_URL", "http://localhost:8123"))
+    # HA 长期访问令牌：HA 个人资料 -> 安全 -> 长期访问令牌
+    ha_token: str = field(default_factory=lambda: os.environ.get("HA_TOKEN", ""))
