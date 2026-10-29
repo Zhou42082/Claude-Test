@@ -48,6 +48,9 @@ DOMAIN_TYPES: dict[str, DeviceType] = {
     "binary_sensor": DeviceType.BINARY_SENSOR,
     "lock": DeviceType.LOCK,
     "camera": DeviceType.CAMERA,
+    # 场景和脚本在 HA 里配置（或用 HA 的场景编辑器），App 里一键执行
+    "scene": DeviceType.SCENE,
+    "script": DeviceType.SCENE,
 }
 
 # fan 实体满足以下任一条件时视为空气净化器：名称 / 型号含关键词，或同一设备上有 PM2.5 传感器
@@ -216,6 +219,9 @@ def _map_state(
         case DeviceType.CAMERA:
             s["camera_state"] = raw
             s["stream_supported"] = bool(features & CAMERA_STREAM)
+        case DeviceType.SCENE:
+            # scene 的状态是上次执行时间，script 的状态是是否正在运行
+            caps = [Action.ACTIVATE]
     return s, caps
 
 
@@ -278,6 +284,8 @@ def command_to_service(entity_id: str, command: Command) -> tuple[str, str, dict
             return "fan", "set_percentage", {"percentage": p["percentage"]}
         case Action.SET_PRESET_MODE:
             return "fan", "set_preset_mode", {"preset_mode": p["preset_mode"]}
+        case Action.ACTIVATE:
+            return domain, "turn_on", {}
         case Action.LOCK:
             return "lock", "lock", {}
         case Action.UNLOCK:

@@ -122,7 +122,55 @@ def _seed() -> list[Device]:
             },
             capabilities=[*_ONOFF, Action.SET_FAN_SPEED, Action.SET_PRESET_MODE],
         ),
+        *(
+            Device(
+                id=f"mock:{key}",
+                name=name,
+                type=DeviceType.SCENE,
+                platform=Platform.OTHER,
+                capabilities=[Action.ACTIVATE],
+            )
+            for key, (name, _) in _SCENES.items()
+        ),
     ]
+
+
+def _cmd(action: Action, **params: object) -> Command:
+    return Command(action=action, params=params)
+
+
+# 演示场景：场景 ID -> (名称, [(设备原始 ID, 命令)])
+_SCENES: dict[str, tuple[str, list[tuple[str, Command]]]] = {
+    "scene_home": (
+        "回家",
+        [
+            ("living_light", _cmd(Action.TURN_ON)),
+            ("living_curtain", _cmd(Action.OPEN)),
+            ("living_ac", _cmd(Action.TURN_ON)),
+        ],
+    ),
+    "scene_away": (
+        "离家",
+        [
+            ("living_light", _cmd(Action.TURN_OFF)),
+            ("bedroom_lamp", _cmd(Action.TURN_OFF)),
+            ("bedroom_fan", _cmd(Action.TURN_OFF)),
+            ("living_ac", _cmd(Action.TURN_OFF)),
+            ("kitchen_plug", _cmd(Action.TURN_OFF)),
+            ("living_curtain", _cmd(Action.CLOSE)),
+            ("entrance_lock", _cmd(Action.LOCK)),
+        ],
+    ),
+    "scene_sleep": (
+        "睡眠",
+        [
+            ("living_light", _cmd(Action.TURN_OFF)),
+            ("bedroom_lamp", _cmd(Action.TURN_OFF)),
+            ("living_curtain", _cmd(Action.CLOSE)),
+            ("bedroom_purifier", _cmd(Action.SET_PRESET_MODE, preset_mode="sleep")),
+        ],
+    ),
+}
 
 
 def _solid_png(width: int, height: int, rgb: tuple[int, int, int]) -> bytes:
@@ -168,6 +216,9 @@ class MockAdapter(DeviceAdapter):
             raise DeviceNotFound(native_id)
         if not device.online:
             raise AdapterError(f"设备 {device.name} 离线")
+        if command.action == Action.ACTIVATE:
+            await self._run_scene(native_id)
+            return
 
         s = device.state
         p = command.params
@@ -217,3 +268,10 @@ class MockAdapter(DeviceAdapter):
 
         if self._on_event:
             await self._on_event(DeviceEvent(type="device_updated", device=device.model_copy(deep=True)))
+
+    async def _run_scene(self, scene_id: str) -> None:
+        # 和 HA 场景一样尽力执行：某个设备失败不影响其他设备
+        for native_id, command in _SCENES[scene_id][1]:
+            device = self._devices[self.device_id(native_id)]
+            if device.online and command.action in device.capabilities:
+                await self.execute(native_id, command)

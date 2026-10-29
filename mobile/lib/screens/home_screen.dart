@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../models/alert.dart';
 import '../models/device.dart';
 import '../state/device_store.dart';
 import '../widgets/device_card.dart';
+import 'alerts_screen.dart';
 import 'settings_screen.dart';
 
 const _allRooms = '全部';
@@ -21,21 +23,47 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
-    _store = context.read<DeviceStore>()..addListener(_showError);
+    _store = context.read<DeviceStore>()..addListener(_showMessages);
   }
 
   @override
   void dispose() {
-    _store.removeListener(_showError);
+    _store.removeListener(_showMessages);
     super.dispose();
   }
 
-  void _showError() {
+  void _showMessages() {
+    if (!mounted) return;
+    final messenger = ScaffoldMessenger.of(context);
     final error = _store.takeError();
-    if (error != null && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error)));
+    if (error != null) messenger.showSnackBar(SnackBar(content: Text(error)));
+
+    final alert = _store.takeIncomingAlert();
+    if (alert != null) {
+      final scheme = Theme.of(context).colorScheme;
+      final critical = alert.level == AlertLevel.critical;
+      messenger.showSnackBar(
+        SnackBar(
+          backgroundColor: critical ? scheme.error : null,
+          duration: Duration(seconds: critical ? 10 : 4),
+          content: Row(
+            children: [
+              Icon(alert.level.icon, color: critical ? scheme.onError : Colors.orange),
+              const SizedBox(width: 8),
+              Expanded(child: Text(alert.title)),
+            ],
+          ),
+          action: SnackBarAction(
+            label: '查看',
+            textColor: critical ? scheme.onError : null,
+            onPressed: _openAlerts,
+          ),
+        ),
+      );
     }
   }
+
+  void _openAlerts() => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const AlertsScreen()));
 
   @override
   Widget build(BuildContext context) {
@@ -50,6 +78,15 @@ class _HomeScreenState extends State<HomeScreen> {
         appBar: AppBar(
           title: const Text('我的家'),
           actions: [
+            IconButton(
+              tooltip: '告警',
+              onPressed: _openAlerts,
+              icon: Badge(
+                isLabelVisible: store.unreadAlerts > 0,
+                label: Text('${store.unreadAlerts}'),
+                child: const Icon(Icons.notifications_outlined),
+              ),
+            ),
             IconButton(
               icon: const Icon(Icons.settings_outlined),
               tooltip: '网关设置',
@@ -70,7 +107,11 @@ class _HomeScreenState extends State<HomeScreen> {
             Expanded(
               child: TabBarView(
                 children: [
-                  for (final r in rooms) _DeviceGrid(devices: store.devicesIn(r == _allRooms ? null : r)),
+                  for (final r in rooms)
+                    _RoomView(
+                      scenes: store.scenesIn(r == _allRooms ? null : r),
+                      devices: store.devicesIn(r == _allRooms ? null : r),
+                    ),
                 ],
               ),
             ),
@@ -134,26 +175,72 @@ class _PlatformFilter extends StatelessWidget {
   }
 }
 
-class _DeviceGrid extends StatelessWidget {
-  const _DeviceGrid({required this.devices});
+class _RoomView extends StatelessWidget {
+  const _RoomView({required this.scenes, required this.devices});
 
+  final List<Device> scenes;
   final List<Device> devices;
 
   @override
   Widget build(BuildContext context) {
-    if (devices.isEmpty) {
+    if (devices.isEmpty && scenes.isEmpty) {
       return const Center(child: Text('暂无设备'));
     }
-    return GridView.builder(
-      padding: const EdgeInsets.all(12),
-      gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-        maxCrossAxisExtent: 220,
-        mainAxisSpacing: 8,
-        crossAxisSpacing: 8,
-        childAspectRatio: 1.15,
+    return CustomScrollView(
+      slivers: [
+        if (scenes.isNotEmpty) SliverToBoxAdapter(child: _SceneBar(scenes: scenes)),
+        SliverPadding(
+          padding: const EdgeInsets.all(12),
+          sliver: SliverGrid.builder(
+            gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+              maxCrossAxisExtent: 220,
+              mainAxisSpacing: 8,
+              crossAxisSpacing: 8,
+              childAspectRatio: 1.15,
+            ),
+            itemCount: devices.length,
+            itemBuilder: (_, i) => DeviceCard(device: devices[i]),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// 一键场景。场景在 Home Assistant 中配置（scene / script），App 只负责执行。
+class _SceneBar extends StatelessWidget {
+  const _SceneBar({required this.scenes});
+
+  final List<Device> scenes;
+
+  Future<void> _run(BuildContext context, Device scene) async {
+    final messenger = ScaffoldMessenger.of(context);
+    if (await context.read<DeviceStore>().send(scene, DeviceAction.activate)) {
+      messenger.showSnackBar(SnackBar(content: Text('已执行「${scene.name}」')));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final store = context.watch<DeviceStore>();
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
+      child: Row(
+        children: [
+          for (final scene in scenes)
+            Padding(
+              padding: const EdgeInsets.only(right: 8),
+              child: ActionChip(
+                avatar: store.isPending(scene.id)
+                    ? const SizedBox.square(dimension: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                    : Icon(DeviceType.scene.icon, size: 18),
+                label: Text(scene.name),
+                onPressed: scene.online && !store.isPending(scene.id) ? () => _run(context, scene) : null,
+              ),
+            ),
+        ],
       ),
-      itemCount: devices.length,
-      itemBuilder: (_, i) => DeviceCard(device: devices[i]),
     );
   }
 }

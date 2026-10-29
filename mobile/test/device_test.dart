@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:smart_home/models/alert.dart';
 import 'package:smart_home/models/device.dart';
 
 import 'fakes.dart';
@@ -63,5 +64,13 @@ void main() {
     expect(cam.platform, DevicePlatform.imou);
     expect(cam.streamSupported, isTrue);
     expect(cam.summary, '在线');
+  });
+
+  test('alert parsing and time formatting', () {
+    final a = leakAlert(time: DateTime(2026, 10, 29, 8, 5));
+    expect(a.level, AlertLevel.critical);
+    expect(a.title, '厨房 · 漏水传感器：检测到漏水');
+    expect(formatAlertTime(a.time, now: DateTime(2026, 10, 29, 23)), '08:05');
+    expect(formatAlertTime(a.time, now: DateTime(2026, 10, 30)), '10月29日 08:05');
   });
 }

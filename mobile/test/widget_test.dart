@@ -102,6 +102,32 @@ void main() {
     await tester.pumpAndSettle();
     expect(client.snapshotCalls, 2);
   });
+
+  testWidgets('scene chip runs the scene', (tester) async {
+    final (client, _) = await pumpWithDevices(tester, [lamp(), awayScene()]);
+    await tester.tap(find.widgetWithText(ActionChip, '离家'));
+    await tester.pumpAndSettle();
+    expect(client.commands.single.$2, 'activate');
+    expect(find.text('已执行「离家」'), findsOneWidget);
+  });
+
+  testWidgets('critical alert pops up, badge counts it, alerts page clears it', (tester) async {
+    final (client, store) = await pumpWithDevices(tester, [lamp()]);
+    expect(find.byType(Badge), findsOneWidget);
+    expect(tester.widget<Badge>(find.byType(Badge)).isLabelVisible, isFalse);
+
+    client.emit(AlertEvent(leakAlert()));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500)); // SnackBar 入场动画
+    expect(find.text('厨房 · 漏水传感器：检测到漏水'), findsOneWidget);
+    expect(tester.widget<Badge>(find.byType(Badge)).isLabelVisible, isTrue);
+
+    await tester.tap(find.byTooltip('告警'));
+    await tester.pumpAndSettle();
+    expect(find.text('检测到漏水'), findsOneWidget);
+    expect(find.text('厨房 · 漏水传感器'), findsOneWidget);
+    expect(store.unreadAlerts, 0);
+  });
 }
 
 Future<(FakeGatewayClient, DeviceStore)> pumpWithDevices(WidgetTester tester, List<Device> devices) async {

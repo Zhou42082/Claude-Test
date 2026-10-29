@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:typed_data';
 
+import 'package:smart_home/models/alert.dart';
 import 'package:smart_home/models/device.dart';
 import 'package:smart_home/services/gateway_client.dart';
 
@@ -103,4 +104,23 @@ Device doorCamera() => Device.fromJson({
   'room': '门口',
   'state': {'camera_state': 'idle', 'stream_supported': true},
   'capabilities': [],
+});
+
+Device awayScene() => Device.fromJson({
+  'id': 'ha:scene.away',
+  'name': '离家',
+  'type': 'scene',
+  'platform': 'other',
+  'state': {},
+  'capabilities': ['activate'],
+});
+
+GatewayAlert leakAlert({int id = 1, String level = 'critical', DateTime? time}) => GatewayAlert.fromJson({
+  'id': id,
+  'time': (time ?? DateTime.now()).toUtc().toIso8601String(),
+  'level': level,
+  'device_id': 'ha:binary_sensor.leak',
+  'device_name': '漏水传感器',
+  'room': '厨房',
+  'message': '检测到漏水',
 });

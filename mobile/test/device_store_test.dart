@@ -69,4 +69,42 @@ void main() {
     expect(store.status, ConnectionStatus.connecting);
     expect(client.controller, isNot(same(first)));
   });
+
+  test('scenes are kept out of the device grid and platform filter', () async {
+    client.emit(SnapshotEvent([lamp(), awayScene()]));
+    await pumpEventQueue();
+    expect(store.devicesIn(null).map((d) => d.name), ['床头灯']);
+    expect(store.scenesIn(null).map((d) => d.name), ['离家']);
+    expect(store.scenesIn('卧室'), isEmpty);
+    expect(store.platforms, [DevicePlatform.tuya]);
+  });
+
+  test('tracks unread alerts and surfaces urgent ones', () async {
+    client.emit(SnapshotEvent([lamp()], [leakAlert(time: DateTime(2026, 10, 1))]));
+    await pumpEventQueue();
+    expect(store.unreadAlerts, 1);
+    // 快照里的历史告警不弹出提示
+    expect(store.takeIncomingAlert(), isNull);
+
+    store.markAlertsRead();
+    expect(store.unreadAlerts, 0);
+
+    client.emit(AlertEvent(leakAlert(id: 2, level: 'info')));
+    await pumpEventQueue();
+    expect(store.unreadAlerts, 1);
+    expect(store.takeIncomingAlert(), isNull, reason: '提示级别只计入未读，不弹出');
+
+    client.emit(AlertEvent(leakAlert(id: 3)));
+    await pumpEventQueue();
+    expect(store.unreadAlerts, 2);
+    expect(store.alerts.map((a) => a.id), [3, 2, 1]);
+    expect(store.takeIncomingAlert()!.id, 3);
+    expect(store.takeIncomingAlert(), isNull);
+  });
+
+  test('send reports success', () async {
+    expect(await store.send(awayScene(), DeviceAction.activate), isTrue);
+    client.commandError = GatewayException('boom', 502);
+    expect(await store.send(awayScene(), DeviceAction.activate), isFalse);
+  });
 }

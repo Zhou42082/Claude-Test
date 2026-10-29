@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from enum import StrEnum
 from typing import Any, Literal
 
@@ -31,6 +32,7 @@ class DeviceType(StrEnum):
     LOCK = "lock"
     CAMERA = "camera"
     AIR_PURIFIER = "air_purifier"
+    SCENE = "scene"  # 场景 / 脚本，只有 activate 一个动作
 
 
 class Action(StrEnum):
@@ -49,6 +51,7 @@ class Action(StrEnum):
     SET_PRESET_MODE = "set_preset_mode"
     LOCK = "lock"
     UNLOCK = "unlock"
+    ACTIVATE = "activate"
 
 
 # 敏感动作：网关需要额外校验开锁 PIN（见 config.Settings.unlock_pin）
@@ -127,3 +130,24 @@ class Command(BaseModel):
 class DeviceEvent(BaseModel):
     type: Literal["device_updated", "device_removed"]
     device: Device
+
+
+class AlertLevel(StrEnum):
+    INFO = "info"
+    WARNING = "warning"
+    CRITICAL = "critical"
+
+
+class Alert(BaseModel):
+    id: int
+    time: datetime
+    level: AlertLevel
+    device_id: str
+    device_name: str
+    room: str | None = None
+    message: str
+
+
+class AlertEvent(BaseModel):
+    type: Literal["alert"] = "alert"
+    alert: Alert

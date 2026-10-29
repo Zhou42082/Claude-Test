@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:http/http.dart' as http;
 import 'package:web_socket_channel/web_socket_channel.dart';
 
+import '../models/alert.dart';
 import '../models/device.dart';
 
 class GatewayConfig {
@@ -30,8 +31,16 @@ class GatewayException implements Exception {
 sealed class GatewayEvent {}
 
 class SnapshotEvent extends GatewayEvent {
-  SnapshotEvent(this.devices);
+  SnapshotEvent(this.devices, [this.alerts = const []]);
   final List<Device> devices;
+
+  /// 网关上最近的告警，最新在前
+  final List<GatewayAlert> alerts;
+}
+
+class AlertEvent extends GatewayEvent {
+  AlertEvent(this.alert);
+  final GatewayAlert alert;
 }
 
 class DeviceUpdatedEvent extends GatewayEvent {
@@ -111,9 +120,15 @@ class GatewayClient {
     final msg = jsonDecode(raw) as Map<String, dynamic>;
     switch (msg['type']) {
       case 'snapshot':
-        return SnapshotEvent([
-          for (final d in msg['devices'] as List) Device.fromJson(d as Map<String, dynamic>),
-        ]);
+        return SnapshotEvent(
+          [for (final d in msg['devices'] as List) Device.fromJson(d as Map<String, dynamic>)],
+          [
+            for (final a in msg['alerts'] as List? ?? const [])
+              GatewayAlert.fromJson(a as Map<String, dynamic>),
+          ],
+        );
+      case 'alert':
+        return AlertEvent(GatewayAlert.fromJson(msg['alert'] as Map<String, dynamic>));
       case 'device_updated':
         return DeviceUpdatedEvent(Device.fromJson(msg['device'] as Map<String, dynamic>));
       case 'device_removed':

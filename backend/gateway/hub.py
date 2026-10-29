@@ -1,4 +1,4 @@
-"""DeviceHub：聚合所有适配器，维护设备缓存，并把状态变化广播给已连接的 App。"""
+"""DeviceHub：聚合所有适配器，维护设备缓存，检测告警，并把状态变化和告警广播给已连接的 App。"""
 
 from __future__ import annotations
 
@@ -6,11 +6,15 @@ import asyncio
 import logging
 
 from .adapters.base import DeviceAdapter, DeviceNotFound, MediaContent
-from .models import Command, Device, DeviceEvent, DeviceType
+from .alerts import AlertLog, detect_alerts
+from .models import Alert, AlertEvent, Command, Device, DeviceEvent, DeviceType
 
 log = logging.getLogger(__name__)
 
 SUBSCRIBER_QUEUE_SIZE = 256
+
+# 推送给 App 的消息；None 表示订阅已被丢弃
+Message = DeviceEvent | AlertEvent
 
 
 class CapabilityError(Exception):
@@ -21,7 +25,8 @@ class DeviceHub:
     def __init__(self, adapters: list[DeviceAdapter]) -> None:
         self._adapters = {a.name: a for a in adapters}
         self._devices: dict[str, Device] = {}
-        self._subscribers: set[asyncio.Queue[DeviceEvent | None]] = set()
+        self._subscribers: set[asyncio.Queue[Message | None]] = set()
+        self._alerts = AlertLog()
 
     async def start(self) -> None:
         for adapter in self._adapters.values():
@@ -41,6 +46,9 @@ class DeviceHub:
             return self._devices[device_id]
         except KeyError:
             raise DeviceNotFound(device_id) from None
+
+    def alerts(self, limit: int = 50) -> list[Alert]:
+        return self._alerts.recent(limit)
 
     def rooms(self) -> list[str]:
         return sorted({d.room for d in self._devices.values() if d.room})
@@ -76,23 +84,34 @@ class DeviceHub:
             raise CapabilityError(f"设备 {device.name} 不是摄像头")
         return self._route(device_id)
 
-    def subscribe(self) -> asyncio.Queue[DeviceEvent | None]:
-        """订阅设备事件。队列中收到 None 表示订阅已被丢弃，客户端应重连以获取完整快照。"""
-        queue: asyncio.Queue[DeviceEvent | None] = asyncio.Queue(SUBSCRIBER_QUEUE_SIZE)
+    def subscribe(self) -> asyncio.Queue[Message | None]:
+        """订阅设备事件和告警。队列中收到 None 表示订阅已被丢弃，客户端应重连以获取完整快照。"""
+        queue: asyncio.Queue[Message | None] = asyncio.Queue(SUBSCRIBER_QUEUE_SIZE)
         self._subscribers.add(queue)
         return queue
 
-    def unsubscribe(self, queue: asyncio.Queue[DeviceEvent | None]) -> None:
+    def unsubscribe(self, queue: asyncio.Queue[Message | None]) -> None:
         self._subscribers.discard(queue)
 
     async def _handle_event(self, event: DeviceEvent) -> None:
+        alerts: list[Alert] = []
         if event.type == "device_removed":
             self._devices.pop(event.device.id, None)
         else:
+            old = self._devices.get(event.device.id)
             self._devices[event.device.id] = event.device
+            for level, message in detect_alerts(old, event.device):
+                alert = self._alerts.add(event.device, level, message)
+                log.info("告警 [%s] %s：%s", level, event.device.name, message)
+                alerts.append(alert)
+        self._broadcast(event)
+        for alert in alerts:
+            self._broadcast(AlertEvent(alert=alert))
+
+    def _broadcast(self, message: Message) -> None:
         for queue in list(self._subscribers):
             try:
-                queue.put_nowait(event)
+                queue.put_nowait(message)
             except asyncio.QueueFull:
                 # 客户端消费太慢：丢弃该订阅，客户端重连后会拿到完整快照
                 log.warning("subscriber queue full, dropping subscriber")

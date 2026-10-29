@@ -8,7 +8,8 @@ GET  /api/devices/{id}/snapshot      摄像头当前画面
 POST /api/devices/{id}/stream        摄像头实时视频，返回 {"url": "/api/hls/..."}
 GET  /api/hls/...                    HLS 代理（无需鉴权，地址中带一次性令牌）
 GET  /api/rooms                      房间列表
-WS   /api/ws?token=...               推送：先发 snapshot，之后发 device_updated / device_removed
+GET  /api/alerts?limit=50            最近的告警（最新在前）
+WS   /api/ws?token=...               推送：先发 snapshot（设备 + 最近告警），之后发 device_updated / device_removed / alert
 """
 
 from __future__ import annotations
@@ -27,7 +28,7 @@ from .adapters.home_assistant import HomeAssistantAdapter
 from .adapters.mock import MockAdapter
 from .config import Settings
 from .hub import CapabilityError, DeviceHub
-from .models import SENSITIVE_ACTIONS, Command, Device
+from .models import SENSITIVE_ACTIONS, Alert, Command, Device
 
 log = logging.getLogger(__name__)
 
@@ -161,6 +162,10 @@ def create_app(settings: Settings | None = None, adapters: list[DeviceAdapter] |
     async def rooms() -> list[str]:
         return hub.rooms()
 
+    @app.get("/api/alerts", dependencies=auth)
+    async def alerts(limit: int = 50) -> list[Alert]:
+        return hub.alerts(max(1, min(limit, 200)))
+
     @app.websocket("/api/ws")
     async def events(ws: WebSocket, token: str | None = None) -> None:
         if not token_ok(token):
@@ -170,7 +175,11 @@ def create_app(settings: Settings | None = None, adapters: list[DeviceAdapter] |
         queue = hub.subscribe()
         try:
             await ws.send_json(
-                {"type": "snapshot", "devices": [d.model_dump(mode="json") for d in hub.list_devices()]}
+                {
+                    "type": "snapshot",
+                    "devices": [d.model_dump(mode="json") for d in hub.list_devices()],
+                    "alerts": [a.model_dump(mode="json") for a in hub.alerts()],
+                }
             )
             while (event := await queue.get()) is not None:
                 await ws.send_json(event.model_dump(mode="json"))

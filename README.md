@@ -6,7 +6,7 @@
 Flutter App  ──REST / WebSocket──▶  统一网关 (FastAPI)  ──▶  Home Assistant  ──▶  小米 / 涂鸦 / Matter 设备
 ```
 
-- `mobile/` — Flutter App：按房间、按平台浏览设备，开关 / 调光 / 色温 / 空调 / 窗帘 / 风扇 / 净化器控制，门锁（PIN 开锁），摄像头画面与实时视频，实时状态推送
+- `mobile/` — Flutter App：按房间、按平台浏览设备，开关 / 调光 / 色温 / 空调 / 窗帘 / 风扇 / 净化器控制，门锁（PIN 开锁），摄像头画面与实时视频，一键场景，告警（漏水 / 烟雾 / 门锁 / 低电量等），实时状态推送
 - `backend/` — 统一网关：把各平台设备转换成统一模型，对 App 提供 REST 和 WebSocket 接口
 - `docs/architecture.md` — 架构设计、**各平台接入可行性（华为需要重点看）**、接口说明、路线图
 

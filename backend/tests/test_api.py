@@ -47,7 +47,13 @@ def test_requires_token(client):
 
 def test_list_devices_covers_all_platforms(client):
     devices = client.get("/api/devices", headers=AUTH).json()
-    assert {d["platform"] for d in devices} == {"xiaomi", "huawei", "tuya", "imou", "desman"}
+    assert {d["platform"] for d in devices if d["type"] != "scene"} == {
+        "xiaomi",
+        "huawei",
+        "tuya",
+        "imou",
+        "desman",
+    }
     assert client.get("/api/rooms", headers=AUTH).json() == sorted(["客厅", "卧室", "厨房", "门口"])
 
 
@@ -150,3 +156,33 @@ def test_camera_snapshot_and_stream(client):
     assert client.post("/api/devices/mock:entrance_cam/stream", headers=AUTH).status_code == 502
     # 没有启用 HA 适配器时 HLS 代理无内容
     assert client.get("/api/hls/abc/master_playlist.m3u8").status_code == 404
+
+
+def test_scene_runs_all_its_commands(client):
+    assert command(client, "mock:scene_away", "activate").status_code == 202
+    devices = {d["id"]: d for d in client.get("/api/devices", headers=AUTH).json()}
+    assert devices["mock:living_light"]["state"]["on"] is False
+    assert devices["mock:kitchen_plug"]["state"]["on"] is False
+    assert devices["mock:living_curtain"]["state"]["position"] == 0
+    assert devices["mock:living_ac"]["state"]["hvac_mode"] == "off"
+    assert devices["mock:entrance_lock"]["state"]["lock_state"] == "locked"
+    # 场景只能执行，不能开关
+    assert command(client, "mock:scene_away", "turn_on").status_code == 422
+
+
+def test_unlock_raises_alert_pushed_over_websocket(pin_client):
+    with pin_client.websocket_connect(f"/api/ws?token={TOKEN}") as ws:
+        assert ws.receive_json()["alerts"] == []
+        assert command(pin_client, "mock:entrance_lock", "unlock", pin=PIN).status_code == 202
+        assert ws.receive_json()["type"] == "device_updated"
+        alert = ws.receive_json()
+        assert alert["type"] == "alert"
+        assert alert["alert"]["level"] == "info"
+        assert alert["alert"]["message"] == "门锁已打开"
+        assert alert["alert"]["device_name"] == "入户门锁"
+
+    alerts = pin_client.get("/api/alerts", headers=AUTH).json()
+    assert [a["message"] for a in alerts] == ["门锁已打开"]
+    with pin_client.websocket_connect(f"/api/ws?token={TOKEN}") as ws:
+        # 重连后的快照里带着最近告警
+        assert ws.receive_json()["alerts"][0]["message"] == "门锁已打开"

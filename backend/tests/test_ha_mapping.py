@@ -221,3 +221,14 @@ def test_camera_from_imou_integration():
 )
 def test_new_commands_to_service(command, expected):
     assert command_to_service("lock.x" if expected[0] == "lock" else "fan.x", command) == expected
+
+
+@pytest.mark.parametrize("entity_id", ["scene.away", "script.good_night"])
+def test_scenes_and_scripts_are_activatable(entity_id):
+    state = {"entity_id": entity_id, "state": "unknown", "attributes": {"friendly_name": "离家"}}
+    result = map_entity(state, None, None, {})
+    assert result.type == DeviceType.SCENE
+    assert result.online is True
+    assert result.capabilities == [Action.ACTIVATE]
+    domain = entity_id.split(".")[0]
+    assert command_to_service(entity_id, Command(action=Action.ACTIVATE)) == (domain, "turn_on", {})

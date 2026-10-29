@@ -30,6 +30,7 @@ enum DeviceType {
   lock('门锁', Icons.lock_outline),
   camera('摄像头', Icons.videocam_outlined),
   airPurifier('净化器', Icons.air),
+  scene('场景', Icons.auto_awesome),
   unknown('设备', Icons.devices_other);
 
   const DeviceType(this.label, this.icon);
@@ -48,6 +49,7 @@ enum DeviceType {
     'lock': lock,
     'camera': camera,
     'air_purifier': airPurifier,
+    'scene': scene,
   };
 
   static DeviceType parse(String? value) => _wireNames[value] ?? unknown;
@@ -72,6 +74,7 @@ abstract final class DeviceAction {
 
   /// 需要在网关校验 PIN（params 中带 pin）
   static const unlock = 'unlock';
+  static const activate = 'activate';
 }
 
 class Device {
@@ -176,6 +179,8 @@ class Device {
         return '$display${state['unit'] ?? ''}';
       case DeviceType.binarySensor:
         return binarySensorLabel(state['device_class'] as String?, isOn);
+      case DeviceType.scene:
+        return '';
       case DeviceType.switchDevice:
       case DeviceType.unknown:
         return isOn ? '已开启' : '已关闭';
