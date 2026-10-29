@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:smart_home/main.dart';
 import 'package:smart_home/models/device.dart';
@@ -10,6 +11,8 @@ import 'package:smart_home/state/settings_store.dart';
 import 'fakes.dart';
 
 void main() {
+  setUp(() => FlutterSecureStorage.setMockInitialValues({}));
+
   testWidgets('shows settings on first run', (tester) async {
     SharedPreferences.setMockInitialValues({});
     final settings = SettingsStore();
@@ -127,6 +130,45 @@ void main() {
     expect(find.text('检测到漏水'), findsOneWidget);
     expect(find.text('厨房 · 漏水传感器'), findsOneWidget);
     expect(store.unreadAlerts, 0);
+  });
+
+  testWidgets('camera PTZ moves and then refreshes the snapshot', (tester) async {
+    final (client, _) = await pumpWithDevices(tester, [doorCamera()]);
+    await tester.tap(find.text('门口摄像头'));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('最近门铃'), findsOneWidget);
+    // 只显示摄像头支持的方向
+    expect(find.byTooltip('向左'), findsOneWidget);
+    expect(find.byTooltip('向上'), findsNothing);
+
+    await tester.ensureVisible(find.byTooltip('向左'));
+    await tester.tap(find.byTooltip('向左'));
+    await tester.pump();
+    final (_, action, params) = client.commands.single;
+    expect(action, 'ptz');
+    expect(params, {'direction': 'left'});
+    expect(client.snapshotCalls, 1);
+
+    await tester.pump(const Duration(seconds: 2));
+    await tester.pumpAndSettle();
+    expect(client.snapshotCalls, 2);
+  });
+
+  testWidgets('demo tools appear only in demo mode and run scenarios', (tester) async {
+    final (client, store) = await pumpWithDevices(tester, [lamp()]);
+    expect(find.byTooltip('演示工具'), findsNothing);
+
+    client.demoScenarios = const [DemoScenario('mock:leak', '厨房漏水')];
+    client.emit(SnapshotEvent([lamp()]));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byTooltip('演示工具'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('厨房漏水'));
+    await tester.pumpAndSettle();
+    expect(client.demoRuns, ['mock:leak']);
+    expect(find.text('已模拟：厨房漏水'), findsOneWidget);
   });
 }
 

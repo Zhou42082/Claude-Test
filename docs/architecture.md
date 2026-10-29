@@ -127,25 +127,32 @@ flowchart LR
 ```
 backend/                 统一网关（Python 3.11+, FastAPI）
   gateway/
-    models.py            统一设备模型：Device / Command / Platform / Action
-    hub.py               DeviceHub：聚合适配器、设备缓存、事件广播
-    main.py              REST + WebSocket 接口
+    models.py            统一设备模型：Device / Command / Platform / Action / Alert
+    hub.py               DeviceHub：聚合适配器、设备缓存、告警检测、事件广播
+    alerts.py            告警规则与告警记录（SQLite）
+    main.py              REST + WebSocket 接口、开锁 PIN 校验、网页版托管
     config.py            环境变量配置
     adapters/
       base.py            适配器接口
-      home_assistant.py  HA WebSocket 客户端（鉴权、同步、订阅、重连）
-      ha_mapping.py      HA 实体 <-> 统一设备 的转换规则
-      mock.py            演示数据（三个平台各有设备）
+      home_assistant.py  HA WebSocket 客户端（鉴权、同步、订阅、重连、截图、HLS 转发）
+      ha_mapping.py      HA 实体 <-> 统一设备 的转换规则（含多实体合并）
+      mock.py            演示设备、演示场景、演示工具
   tests/                 单元测试 + 假 HA 服务的协议测试
-mobile/                  Flutter App
+mobile/                  Flutter App（Android / iOS / 网页版）
   lib/
-    models/device.dart          设备模型（与网关一致）
+    models/                     设备、告警模型（与网关一致）
     services/gateway_client.dart REST / WebSocket 客户端
-    state/device_store.dart     设备状态、断线重连、命令下发
-    state/settings_store.dart   网关地址与令牌
-    screens/                    首页（按房间分 Tab、按平台筛选）、设置页
-    widgets/                    设备卡片、设备控制面板
+    state/device_store.dart     设备状态、告警、断线重连、命令下发
+    state/settings_store.dart   网关地址、令牌（安全存储）、告警已读位置
+    screens/                    首页、告警、演示工具、摄像头实时画面、设置
+    widgets/                    设备卡片、控制面板、门锁、摄像头（截图 + 云台）、净化器
+    web_fonts.dart              网页版中文字体加载
+  web/                          网页版入口；字体与 CanvasKit 本地化，不依赖 Google CDN
+tools/subset_cjk_font.py 生成网页版中文字体子集
+Dockerfile               网关 + 网页版 App 镜像
 docker-compose.yml       HA + Matter Server + 网关
+docker-compose.demo.yml  演示模式（只有网关）
+.github/workflows/ci.yml 测试、构建 APK / 网页版 / Docker 镜像
 ```
 
 ## 5. 统一设备模型
@@ -182,6 +189,9 @@ docker-compose.yml       HA + Matter Server + 网关
 | GET | `/api/hls/...` | HLS 代理，**不需要令牌**（地址中带 HA 生成的一次性令牌） |
 | GET | `/api/rooms` | 房间列表 |
 | GET | `/api/alerts?limit=50` | 最近的告警，最新在前 |
+| GET | `/api/demo` | 演示场景列表（只有演示模式有内容） |
+| POST | `/api/demo/{id}` | 触发演示场景（模拟漏水、门铃等） |
+| GET | `/` | 网页版 App（设置了 `GATEWAY_WEB_DIR` 时；Docker 镜像默认开启） |
 | WS | `/api/ws?token=...` | 实时推送 |
 
 命令示例：
@@ -204,6 +214,7 @@ docker-compose.yml       HA + Matter Server + 网关
 | `lock` | — |
 | `unlock` | `pin`：网关配置的开锁 PIN，只在网关校验，不下发给设备平台 |
 | `activate` | — （执行场景） |
+| `ptz` | `direction`：up / down / left / right（摄像头云台转动一步） |
 
 错误码：401 令牌错误；403 开锁 PIN 错误或未启用远程开锁；404 设备不存在；422 参数错误或设备不支持该动作；429 PIN 连续错误 5 次，锁定 5 分钟；502 下游平台执行失败（设备离线、HA 断开等）。
 
@@ -225,8 +236,12 @@ WebSocket 消息：连接后先收到 `{"type": "snapshot", "devices": [...], "a
 | 门锁、摄像头、漏水 / 烟雾 / 燃气传感器离线 | 警告 |
 | 电量降到 20% 以下 | 警告 |
 | 净化器滤芯降到 10% 以下 | 警告 |
+| 有人按门铃（摄像头同一设备下的门铃事件实体） | 警告 |
+| 摄像头检测到移动（同一设备 5 分钟内只告警一次） | 提示 |
 
-规则在 `backend/gateway/alerts.py`，告警保存在网关内存中（最近 200 条，重启清空）。App 收到警告和紧急告警时弹出提示，首页铃铛显示未读数。
+规则在 `backend/gateway/alerts.py`。设置 `GATEWAY_DATA_DIR` 后告警保存在 `gateway.db`（SQLite，保留最近 1000 条），否则只在内存中。App 收到警告和紧急告警时弹出提示，首页铃铛显示未读数，已读位置保存在手机上。
+
+**摄像头合并**：乐橙集成把一台摄像头拆成摄像头、门铃事件、移动侦测传感器和云台按钮（`ptz_up` 等）多个实体，网关把它们合并成一台设备：`state` 中有 `last_ring`、`motion`、`ptz_directions`，`ptz` 命令转成按下对应方向的按钮。
 
 **状态以推送为准**：命令接口返回 202 只表示已下发，App 不做乐观更新，等网关推送设备真实状态。这样设备执行失败时界面不会显示错误的状态。
 
@@ -239,7 +254,7 @@ WebSocket 消息：连接后先收到 `{"type": "snapshot", "devices": [...], "a
    - 组网方案：Tailscale / ZeroTier / WireGuard，最简单也最安全，适合自用；
    - 内网穿透：frp 等，需要自己的公网服务器；
    - 云中继：自建云端服务，家庭网关主动长连接到云端，App 连云端。面向多用户产品时采用。
-3. **令牌**：App 目前把令牌存在 SharedPreferences，正式版换成 `flutter_secure_storage`（代码中已标 TODO）。多用户场景改为账号登录 + 短期 JWT。
+3. **令牌**：App 把令牌存在系统安全存储（Android Keystore / iOS Keychain）；网页版存在浏览器本地存储。多用户场景改为账号登录 + 短期 JWT。
 4. 不要把 Home Assistant 的 8123 端口直接暴露到公网。
 5. **远程开锁**：默认关闭。设置 `GATEWAY_UNLOCK_PIN` 后才允许 App 开锁，每次开锁都要输入 PIN；连续输错 5 次锁定 5 分钟。PIN 应与网关令牌不同，泄露手机上的网关令牌不等于能开门。上锁不需要 PIN。
 
@@ -247,15 +262,17 @@ WebSocket 消息：连接后先收到 `{"type": "snapshot", "devices": [...], "a
 
 | 阶段 | 内容 |
 | --- | --- |
-| 当前（骨架） | 统一模型、HA 适配器、Mock 演示、App 设备列表与控制、实时推送；门锁（PIN 开锁）、摄像头（截图 + HLS 实时视频）、空气净化器；一键场景；告警（App 内提示 + 告警列表） |
+| 当前 | 统一模型、HA 适配器、演示模式与演示工具、App 设备列表与控制、实时推送；门锁（PIN 开锁）、摄像头（截图、HLS 实时视频、云台、门铃、移动侦测）、空气净化器；一键场景；告警（App 内提示、告警列表、持久化）；网页版 App；CI 构建 APK |
 | 下一步 | 确认华为设备清单与接入路线；部署 HA 并接入真实小米 / 涂鸦设备；按真实设备调整 `ha_mapping.py` |
-| 功能 | **App 关闭时的告警推送**（国内需接厂商推送通道：华为 / 小米 / OPPO / vivo / 荣耀，或极光、个推等聚合推送，iOS 用 APNs）；告警持久化与免打扰时段；门铃、移动侦测告警；定时与自动化（可直接复用 HA 自动化）；设备排序与收藏；摄像头云台控制与回放 |
+| 功能 | **App 关闭时的告警推送**（国内需接厂商推送通道：华为 / 小米 / OPPO / vivo / 荣耀，或极光、个推等聚合推送，iOS 用 APNs）；免打扰时段；定时与自动化（可直接复用 HA 自动化）；设备排序与收藏；摄像头录像回放 |
 | 产品化 | 账号体系与家庭共享、远程访问云中继、操作日志、App 上架（国内各安卓商店需软著） |
 
 ## 9. 已知限制
 
 - 华为、德施曼依赖非官方社区集成，360 暂无接入方式，见第 2 节。
 - 依赖厂商云的集成（小米、涂鸦、乐橙、华为、德施曼的云端模式）在外网中断时不可用；有局域网控制能力的设备不受影响。
-- 摄像头目前支持截图和实时视频；云台、对讲、回放、移动侦测图片还没有做（乐橙集成已提供相应实体，可以继续扩展）。
+- 摄像头支持截图、实时视频、云台、门铃和移动侦测；对讲、录像回放、告警抓图还没有做。网页版能否播放实时视频取决于浏览器是否原生支持 HLS（Safari 支持），建议用 APK 测试视频。
 - 智慧屏 / 音箱、扫地机、热水器等类型还没有映射，在 App 中不显示。
-- 告警只在 App 运行并连着网关时实时弹出；App 关闭期间的告警要等下次打开才能在列表里看到，网关重启后告警记录清空。
+- 告警只在 App 运行并连着网关时实时弹出；App 关闭期间的告警要等下次打开才能在列表里看到。
+- APK 使用调试签名，只适合测试安装；上架应用商店前需要配置正式签名，国内安卓商店还需要软件著作权等材料。iOS 版需要 Apple 开发者账号签名，CI 目前不构建。
+- 网页版的中文字体只包含 GB2312 常用汉字，生僻字会显示为方块。

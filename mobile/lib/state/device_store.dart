@@ -16,7 +16,12 @@ typedef GatewayClientFactory = GatewayClient Function(GatewayConfig config);
 /// 命令下发后不做本地乐观更新，界面以网关推送回来的真实状态为准，
 /// 避免设备实际执行失败时界面和设备不一致。
 class DeviceStore extends ChangeNotifier {
-  DeviceStore({GatewayClientFactory? clientFactory}) : _clientFactory = clientFactory ?? GatewayClient.new;
+  DeviceStore({GatewayClientFactory? clientFactory, DateTime? alertsSeenUntil, this.onAlertsSeen})
+    : _clientFactory = clientFactory ?? GatewayClient.new,
+      _alertsSeenUntil = alertsSeenUntil;
+
+  /// 告警已读位置变化时回调，用于持久化（重启 App 后旧告警不再算未读）
+  final ValueChanged<DateTime>? onAlertsSeen;
 
   static const _maxRetryDelay = Duration(seconds: 30);
   static const _maxAlerts = 200;
@@ -57,6 +62,7 @@ class DeviceStore extends ChangeNotifier {
   void markAlertsRead() {
     if (_alerts.isEmpty || unreadAlerts == 0) return;
     _alertsSeenUntil = _alerts.first.time;
+    onAlertsSeen?.call(_alertsSeenUntil!);
     notifyListeners();
   }
 
@@ -65,6 +71,22 @@ class DeviceStore extends ChangeNotifier {
     final a = _incomingAlert;
     _incomingAlert = null;
     return a;
+  }
+
+  List<DemoScenario> _demoScenarios = const [];
+
+  /// 网关处于演示模式时提供的模拟场景（漏水、门铃等）
+  List<DemoScenario> get demoScenarios => _demoScenarios;
+
+  Future<bool> runDemo(DemoScenario scenario) async {
+    try {
+      await _requireClient().runDemo(scenario.id);
+      return true;
+    } catch (e) {
+      _error = '演示「${scenario.name}」失败：$e';
+      notifyListeners();
+      return false;
+    }
   }
 
   DevicePlatform? _platformFilter;
@@ -116,7 +138,7 @@ class DeviceStore extends ChangeNotifier {
     _teardown();
     _devices.clear();
     _alerts.clear();
-    _alertsSeenUntil = null;
+    _demoScenarios = const [];
     _client = _clientFactory(config);
     _attempt = 0;
     _listen();
@@ -186,6 +208,7 @@ class DeviceStore extends ChangeNotifier {
           ..addAll(alerts);
         _status = ConnectionStatus.connected;
         _attempt = 0;
+        _loadDemoScenarios();
       case DeviceUpdatedEvent(:final device):
         _devices[device.id] = device;
       case DeviceRemovedEvent(:final device):
@@ -196,6 +219,19 @@ class DeviceStore extends ChangeNotifier {
         if (alert.level != AlertLevel.info) _incomingAlert = alert;
     }
     notifyListeners();
+  }
+
+  Future<void> _loadDemoScenarios() async {
+    final client = _client;
+    if (client == null) return;
+    try {
+      final scenarios = await client.fetchDemoScenarios();
+      if (!identical(client, _client)) return;
+      _demoScenarios = scenarios;
+      notifyListeners();
+    } catch (_) {
+      // 演示工具是可选功能，拿不到就不显示
+    }
   }
 
   void _scheduleRetry() {

@@ -1,0 +1,15 @@
+.git
+.github
+data
+docs
+tools
+**/__pycache__
+**/*.pyc
+backend/tests
+backend/.pytest_cache
+backend/.ruff_cache
+mobile/build
+mobile/.dart_tool
+mobile/android
+mobile/ios
+mobile/test

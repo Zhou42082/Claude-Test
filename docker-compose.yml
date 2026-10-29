@@ -23,11 +23,14 @@ services:
     volumes:
       - ./data/matter:/data
 
+  # 网关同时在 http://<服务器IP>:8000/ 提供网页版 App
   gateway:
-    build: ./backend
+    build: .
     container_name: smarthome-gateway
     network_mode: host
     restart: unless-stopped
     env_file: .env
+    volumes:
+      - ./data/gateway:/data
     depends_on:
       - homeassistant

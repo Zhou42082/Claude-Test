@@ -52,6 +52,7 @@ class Action(StrEnum):
     LOCK = "lock"
     UNLOCK = "unlock"
     ACTIVATE = "activate"
+    PTZ = "ptz"  # 摄像头云台转动一步
 
 
 # 敏感动作：网关需要额外校验开锁 PIN（见 config.Settings.unlock_pin）
@@ -60,7 +61,9 @@ SENSITIVE_ACTIONS = frozenset({Action.UNLOCK})
 STRING_PARAMS: dict[Action, str] = {
     Action.SET_HVAC_MODE: "hvac_mode",
     Action.SET_PRESET_MODE: "preset_mode",
+    Action.PTZ: "direction",
 }
+PTZ_DIRECTIONS = ("up", "down", "left", "right")
 
 # 需要数值参数的动作：动作 -> (参数名, 最小值, 最大值)
 NUMERIC_PARAMS: dict[Action, tuple[str, float, float]] = {
@@ -94,6 +97,9 @@ class Device(BaseModel):
       battery: float 0-100         电量（门锁、传感器等电池设备）
       camera_state: str            摄像头状态 idle/streaming/recording
       stream_supported: bool       摄像头是否支持实时视频
+      ptz_directions: list[str]    摄像头云台可转动的方向
+      last_ring: str               最近一次按门铃的时间（ISO 8601）
+      motion: bool                 摄像头是否正检测到移动
       value: Any, unit: str        传感器读数及单位
     """
 
@@ -124,6 +130,8 @@ class Command(BaseModel):
             key = STRING_PARAMS[self.action]
             if not isinstance(self.params.get(key), str):
                 raise ValueError(f"动作 {self.action} 需要字符串参数 '{key}'")
+            if self.action == Action.PTZ and self.params[key] not in PTZ_DIRECTIONS:
+                raise ValueError(f"direction 必须是 {', '.join(PTZ_DIRECTIONS)} 之一")
         return self
 
 

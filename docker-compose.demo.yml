@@ -1,0 +1,17 @@
+# 演示模式：不需要 Home Assistant 和真实设备，一条命令体验全部功能
+#   docker compose -f docker-compose.demo.yml up --build
+# 浏览器（电脑或手机，同一局域网）打开 http://<本机IP>:8000/ ，令牌 devtoken，门锁 PIN 2468
+services:
+  gateway:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      GATEWAY_TOKEN: devtoken
+      GATEWAY_UNLOCK_PIN: "2468"
+      GATEWAY_ADAPTERS: mock
+    volumes:
+      - demo-data:/data
+
+volumes:
+  demo-data:

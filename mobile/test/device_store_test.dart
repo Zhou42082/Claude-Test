@@ -107,4 +107,33 @@ void main() {
     client.commandError = GatewayException('boom', 502);
     expect(await store.send(awayScene(), DeviceAction.activate), isFalse);
   });
+
+  test('restores the persisted read marker and reports new ones', () async {
+    final seenCalls = <DateTime>[];
+    final persisted = DeviceStore(
+      clientFactory: (_) => client,
+      alertsSeenUntil: DateTime(2026, 10, 2),
+      onAlertsSeen: seenCalls.add,
+    )..connect(testConfig);
+    client.emit(
+      SnapshotEvent(
+        [lamp()],
+        [leakAlert(id: 2, time: DateTime(2026, 10, 3)), leakAlert(time: DateTime(2026, 10, 1))],
+      ),
+    );
+    await pumpEventQueue();
+    expect(persisted.unreadAlerts, 1);
+    persisted.markAlertsRead();
+    expect(seenCalls, [DateTime(2026, 10, 3)]);
+    persisted.dispose();
+  });
+
+  test('loads demo scenarios after connecting', () async {
+    client.demoScenarios = const [DemoScenario('mock:leak', '厨房漏水')];
+    client.emit(SnapshotEvent([lamp()]));
+    await pumpEventQueue();
+    expect(store.demoScenarios.single.name, '厨房漏水');
+    expect(await store.runDemo(store.demoScenarios.single), isTrue);
+    expect(client.demoRuns, ['mock:leak']);
+  });
 }

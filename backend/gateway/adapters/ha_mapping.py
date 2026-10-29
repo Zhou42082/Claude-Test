@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from ..models import Action, Command, Device, DeviceType, Platform
+from ..models import PTZ_DIRECTIONS, Action, Command, Device, DeviceType, Platform
 
 # 设备来源判断：优先看实体所属的 HA 集成，其次看设备厂商。
 # 华为设备走 Matter / HomeKit 等通用协议时，集成名无法区分品牌，只能靠厂商名。
@@ -56,6 +56,8 @@ DOMAIN_TYPES: dict[str, DeviceType] = {
 # fan 实体满足以下任一条件时视为空气净化器：名称 / 型号含关键词，或同一设备上有 PM2.5 传感器
 PURIFIER_KEYWORDS = ("purifier", "净化")
 FILTER_KEYWORDS = ("filter", "滤芯", "滤网")
+# 乐橙集成的云台按钮（实体注册表中的 translation_key）
+PTZ_BUTTONS = {f"ptz_{d}": d for d in PTZ_DIRECTIONS}
 
 # 只展示对用户有意义的传感器，信号强度、电池电压之类的诊断数据不进 App
 SENSOR_CLASSES = {"temperature", "humidity", "pm25", "carbon_dioxide", "illuminance", "power"}
@@ -96,6 +98,8 @@ def map_entity(
 
     siblings 是同一个 HA 设备下其他实体的状态。HA 把一台净化器拆成风扇 + PM2.5 传感器 +
     滤芯传感器等多个实体，这里把 PM2.5、滤芯、电量等合并到主实体上，App 只看到一台设备。
+    摄像头同理：合并门铃事件、移动侦测和云台按钮。sibling 中的 translation_key 字段来自
+    实体注册表，用来识别云台按钮（乐橙集成的 ptz_up / ptz_down / ptz_left / ptz_right）。
     """
     siblings = siblings or []
     entity_id: str = state["entity_id"]
@@ -117,6 +121,12 @@ def map_entity(
         return None  # 已合并到净化器
     if device_type == DeviceType.BINARY_SENSOR and device_class not in BINARY_SENSOR_CLASSES:
         return None
+    if (
+        device_type == DeviceType.BINARY_SENSOR
+        and device_class == "motion"
+        and _has_domain(siblings, "camera")
+    ):
+        return None  # 已合并到摄像头
 
     area_id = entity.get("area_id") or device.get("area_id")
     name = (
@@ -134,7 +144,7 @@ def map_entity(
     unified_state, capabilities = _map_state(device_type, raw_state, attrs)
     if device_class:
         unified_state["device_class"] = device_class
-    _merge_siblings(device_type, unified_state, siblings)
+    capabilities += _merge_siblings(device_type, unified_state, siblings)
 
     return Device(
         id=f"{adapter_name}:{entity_id}",
@@ -239,7 +249,12 @@ def _is_purifier(entity_id: str, name: str, device: dict[str, Any], siblings: li
     )
 
 
-def _merge_siblings(device_type: DeviceType, s: dict[str, Any], siblings: list[dict[str, Any]]) -> None:
+def _merge_siblings(
+    device_type: DeviceType, s: dict[str, Any], siblings: list[dict[str, Any]]
+) -> list[Action]:
+    """把兄弟实体的数据写入 s，返回因此新增的能力。"""
+    if device_type == DeviceType.CAMERA:
+        return _merge_camera(s, siblings)
     for st in siblings:
         if not st["entity_id"].startswith("sensor."):
             continue
@@ -256,6 +271,25 @@ def _merge_siblings(device_type: DeviceType, s: dict[str, Any], siblings: list[d
                 s["pm25"] = value
             elif attrs.get("unit_of_measurement") == "%" and any(k in label for k in FILTER_KEYWORDS):
                 s["filter_life"] = value
+    return []
+
+
+def _merge_camera(s: dict[str, Any], siblings: list[dict[str, Any]]) -> list[Action]:
+    directions: list[str] = []
+    for st in siblings:
+        entity_id, raw = st["entity_id"], st.get("state")
+        device_class = st.get("attributes", {}).get("device_class")
+        if entity_id.startswith("event.") and device_class == "doorbell":
+            # event 实体的状态是最近一次事件的时间
+            s["last_ring"] = raw if raw not in (None, "unknown", "unavailable") else None
+        elif entity_id.startswith("binary_sensor.") and device_class == "motion":
+            s["motion"] = raw == "on"
+        elif entity_id.startswith("button.") and (key := st.get("translation_key") or "") in PTZ_BUTTONS:
+            directions.append(PTZ_BUTTONS[key])
+    if not directions:
+        return []
+    s["ptz_directions"] = [d for d in PTZ_DIRECTIONS if d in directions]
+    return [Action.PTZ]
 
 
 def _number_or_raw(raw: str | None) -> Any:

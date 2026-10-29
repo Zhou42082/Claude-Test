@@ -44,6 +44,16 @@ class FakeGatewayClient extends GatewayClient {
     return snapshotBytes;
   }
 
+  List<DemoScenario> demoScenarios = const [];
+  final demoRuns = <String>[];
+
+  /// 不能走真实网络：默认返回空列表，即非演示模式
+  @override
+  Future<List<DemoScenario>> fetchDemoScenarios() async => demoScenarios;
+
+  @override
+  Future<void> runDemo(String scenarioId) async => demoRuns.add(scenarioId);
+
   @override
   void close() {}
 }
@@ -102,8 +112,13 @@ Device doorCamera() => Device.fromJson({
   'type': 'camera',
   'platform': 'imou',
   'room': '门口',
-  'state': {'camera_state': 'idle', 'stream_supported': true},
-  'capabilities': [],
+  'state': {
+    'camera_state': 'idle',
+    'stream_supported': true,
+    'ptz_directions': ['left', 'right'],
+    'last_ring': DateTime.now().toUtc().toIso8601String(),
+  },
+  'capabilities': ['ptz'],
 });
 
 Device awayScene() => Device.fromJson({

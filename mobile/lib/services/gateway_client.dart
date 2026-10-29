@@ -53,6 +53,12 @@ class DeviceRemovedEvent extends GatewayEvent {
   final Device device;
 }
 
+class DemoScenario {
+  const DemoScenario(this.id, this.name);
+  final String id;
+  final String name;
+}
+
 class GatewayClient {
   GatewayClient(this.config, {http.Client? httpClient}) : _http = httpClient ?? http.Client();
 
@@ -112,6 +118,22 @@ class GatewayClient {
     _check(resp);
     final path = (jsonDecode(utf8.decode(resp.bodyBytes)) as Map)['url'] as String;
     return _uri(path);
+  }
+
+  /// 演示模式下的模拟场景；网关没有启用演示适配器时返回空列表
+  Future<List<DemoScenario>> fetchDemoScenarios() async {
+    final resp = await _http.get(_uri('/api/demo'), headers: _headers);
+    if (resp.statusCode == 404) return const [];
+    _check(resp);
+    final list = jsonDecode(utf8.decode(resp.bodyBytes)) as List;
+    return [
+      for (final s in list.cast<Map<String, dynamic>>()) DemoScenario(s['id'] as String, s['name'] as String),
+    ];
+  }
+
+  Future<void> runDemo(String scenarioId) async {
+    final resp = await _http.post(_uri('/api/demo/${Uri.encodeComponent(scenarioId)}'), headers: _headers);
+    _check(resp);
   }
 
   void close() => _http.close();

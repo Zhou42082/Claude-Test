@@ -1,6 +1,8 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../models/device.dart';
 import '../services/gateway_client.dart';
 import '../state/device_store.dart';
 import '../state/settings_store.dart';
@@ -26,7 +28,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
   void initState() {
     super.initState();
     final config = context.read<SettingsStore>().config;
-    _url = TextEditingController(text: config.baseUrl);
+    // 网页版通常由网关直接提供，默认填当前页面的地址
+    final defaultUrl = kIsWeb && config.baseUrl.isEmpty ? Uri.base.origin : config.baseUrl;
+    _url = TextEditingController(text: defaultUrl);
     _token = TextEditingController(text: config.token);
   }
 
@@ -50,7 +54,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     setState(() => _testing = true);
     final client = GatewayClient(config);
     try {
-      final list = await client.fetchDevices();
+      final list = (await client.fetchDevices()).where((d) => d.type != DeviceType.scene).toList();
       await settings.save(config);
       devices.connect(config);
       messenger.showSnackBar(SnackBar(content: Text('连接成功，发现 ${list.length} 个设备')));
@@ -72,7 +76,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         child: ListView(
           padding: const EdgeInsets.all(20),
           children: [
-            const Text('App 通过家庭网关统一控制小米、华为、涂鸦设备。请填写网关地址和访问令牌（GATEWAY_TOKEN）。'),
+            const Text('App 通过家庭网关统一控制小米、华为、涂鸦、乐橙、德施曼等设备。请填写网关地址和访问令牌（GATEWAY_TOKEN）。'),
             const SizedBox(height: 20),
             TextFormField(
               controller: _url,

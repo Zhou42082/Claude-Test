@@ -58,5 +58,12 @@ class DeviceAdapter(ABC):
         """转发 HLS 播放列表和分片；不是本适配器的路径返回 None。"""
         return None
 
+    def demo_scenarios(self) -> dict[str, str]:
+        """演示场景 ID -> 名称。只有演示适配器提供。"""
+        return {}
+
+    async def run_demo(self, scenario: str) -> None:
+        raise DeviceNotFound(scenario)
+
     def device_id(self, native_id: str) -> str:
         return f"{self.name}:{native_id}"

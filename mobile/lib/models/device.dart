@@ -24,7 +24,7 @@ enum DeviceType {
   switchDevice('开关', Icons.power_settings_new),
   climate('空调', Icons.ac_unit),
   cover('窗帘', Icons.curtains_outlined),
-  fan('风扇', Icons.mode_fan_off_outlined),
+  fan('风扇', Icons.wind_power_outlined),
   sensor('传感器', Icons.thermostat),
   binarySensor('传感器', Icons.sensors),
   lock('门锁', Icons.lock_outline),
@@ -75,6 +75,9 @@ abstract final class DeviceAction {
   /// 需要在网关校验 PIN（params 中带 pin）
   static const unlock = 'unlock';
   static const activate = 'activate';
+
+  /// params: {'direction': 'up' | 'down' | 'left' | 'right'}
+  static const ptz = 'ptz';
 }
 
 class Device {
@@ -141,6 +144,16 @@ class Device {
   bool get isLocked => lockState == 'locked';
   String? get cameraState => state['camera_state'] as String?;
   bool get streamSupported => state['stream_supported'] == true;
+  List<String> get ptzDirections => [
+    for (final d in state['ptz_directions'] as List? ?? const []) d as String,
+  ];
+  bool get motionDetected => state['motion'] == true;
+
+  /// 最近一次按门铃的时间（本地时间）
+  DateTime? get lastRing {
+    final raw = state['last_ring'];
+    return raw is String ? DateTime.tryParse(raw)?.toLocal() : null;
+  }
 
   /// 卡片上显示的一句话状态
   String get summary {
@@ -168,6 +181,7 @@ class Device {
         final label = lockStateLabel(lockState);
         return battery != null ? '$label · 电量 $battery%' : label;
       case DeviceType.camera:
+        if (motionDetected) return '检测到移动';
         return switch (cameraState) {
           'streaming' => '直播中',
           'recording' => '录像中',

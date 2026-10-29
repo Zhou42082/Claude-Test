@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import itertools
-from collections import deque
+import sqlite3
+import time
 from datetime import UTC, datetime
 
 from .models import Alert, AlertLevel, Device, DeviceType
@@ -13,6 +13,9 @@ LOW_FILTER = 10
 HAZARDS = {"moisture": "漏水", "smoke": "烟雾", "gas": "燃气泄漏"}
 # 离线需要提醒的设备：安防类，离线意味着可能失去保护
 SECURITY_TYPES = {DeviceType.LOCK, DeviceType.CAMERA}
+MOTION = "检测到移动"
+# 同一设备同一消息在冷却时间内只告警一次，避免移动侦测刷屏
+COOLDOWN_SECONDS = {MOTION: 300}
 
 
 def detect_alerts(old: Device | None, new: Device) -> list[tuple[AlertLevel, str]]:
@@ -33,6 +36,12 @@ def detect_alerts(old: Device | None, new: Device) -> list[tuple[AlertLevel, str
         elif after in ("unlocked", "open") and before == "locked":
             found.append((AlertLevel.INFO, "门锁已打开"))
 
+    if new.type == DeviceType.CAMERA:
+        if n.get("last_ring") and n.get("last_ring") != o.get("last_ring"):
+            found.append((AlertLevel.WARNING, "有人按门铃"))
+        if n.get("motion") and not o.get("motion"):
+            found.append((AlertLevel.INFO, MOTION))
+
     is_security = new.type in SECURITY_TYPES or (new.type == DeviceType.BINARY_SENSOR and hazard)
     if is_security and old.online and not new.online:
         found.append((AlertLevel.WARNING, "设备离线"))
@@ -52,25 +61,70 @@ def _crossed_below(before: object, after: object, threshold: float) -> bool:
 
 
 class AlertLog:
-    """最近的告警，保存在内存中（网关重启后清空）。"""
+    """告警记录，保存在 SQLite 中（path 为 ":memory:" 时只在内存中，重启清空）。"""
 
-    def __init__(self, maxlen: int = 200) -> None:
-        self._alerts: deque[Alert] = deque(maxlen=maxlen)
-        self._ids = itertools.count(1)
+    def __init__(self, path: str = ":memory:", keep: int = 1000) -> None:
+        self._db = sqlite3.connect(path, check_same_thread=False)
+        self._db.execute(
+            """CREATE TABLE IF NOT EXISTS alerts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                time TEXT NOT NULL,
+                level TEXT NOT NULL,
+                device_id TEXT NOT NULL,
+                device_name TEXT NOT NULL,
+                room TEXT,
+                message TEXT NOT NULL
+            )"""
+        )
+        self._db.commit()
+        self._keep = keep
+        self._last_fired: dict[tuple[str, str], float] = {}
 
-    def add(self, device: Device, level: AlertLevel, message: str) -> Alert:
-        alert = Alert(
-            id=next(self._ids),
-            time=datetime.now(UTC),
+    def add(self, device: Device, level: AlertLevel, message: str) -> Alert | None:
+        """记录告警；处于冷却时间内时返回 None。"""
+        cooldown = COOLDOWN_SECONDS.get(message)
+        key = (device.id, message)
+        now = time.monotonic()
+        if cooldown is not None and now - self._last_fired.get(key, -cooldown) < cooldown:
+            return None
+        self._last_fired[key] = now
+
+        at = datetime.now(UTC)
+        cur = self._db.execute(
+            "INSERT INTO alerts (time, level, device_id, device_name, room, message) VALUES (?, ?, ?, ?, ?, ?)",
+            (at.isoformat(), level.value, device.id, device.name, device.room, message),
+        )
+        alert_id = cur.lastrowid or 0
+        self._db.execute("DELETE FROM alerts WHERE id <= ?", (alert_id - self._keep,))
+        self._db.commit()
+        return Alert(
+            id=alert_id,
+            time=at,
             level=level,
             device_id=device.id,
             device_name=device.name,
             room=device.room,
             message=message,
         )
-        self._alerts.append(alert)
-        return alert
 
     def recent(self, limit: int = 50) -> list[Alert]:
         """最新的在前。"""
-        return list(reversed(self._alerts))[:limit]
+        rows = self._db.execute(
+            "SELECT id, time, level, device_id, device_name, room, message FROM alerts ORDER BY id DESC LIMIT ?",
+            (limit,),
+        )
+        return [
+            Alert(
+                id=r[0],
+                time=datetime.fromisoformat(r[1]),
+                level=AlertLevel(r[2]),
+                device_id=r[3],
+                device_name=r[4],
+                room=r[5],
+                message=r[6],
+            )
+            for r in rows
+        ]
+
+    def close(self) -> None:
+        self._db.close()

@@ -232,3 +232,62 @@ def test_scenes_and_scripts_are_activatable(entity_id):
     assert result.capabilities == [Action.ACTIVATE]
     domain = entity_id.split(".")[0]
     assert command_to_service(entity_id, Command(action=Action.ACTIVATE)) == (domain, "turn_on", {})
+
+
+def test_camera_merges_doorbell_motion_and_ptz():
+    state = {"entity_id": "camera.door", "state": "idle", "attributes": {"supported_features": 2}}
+    siblings = [
+        {
+            "entity_id": "event.door_doorbell",
+            "state": "2026-10-29T10:00:00+00:00",
+            "attributes": {"device_class": "doorbell", "event_type": "ring"},
+        },
+        {"entity_id": "binary_sensor.door_motion", "state": "on", "attributes": {"device_class": "motion"}},
+        {
+            "entity_id": "button.door_ptz_left",
+            "state": "unknown",
+            "attributes": {},
+            "translation_key": "ptz_left",
+        },
+        {
+            "entity_id": "button.door_ptz_up",
+            "state": "unknown",
+            "attributes": {},
+            "translation_key": "ptz_up",
+        },
+        {
+            "entity_id": "button.door_reboot",
+            "state": "unknown",
+            "attributes": {},
+            "translation_key": "restart",
+        },
+    ]
+    result = map_entity(state, {"platform": "imou_life"}, None, {}, siblings=siblings)
+    assert result.state["last_ring"] == "2026-10-29T10:00:00+00:00"
+    assert result.state["motion"] is True
+    assert result.state["ptz_directions"] == ["up", "left"]
+    assert result.capabilities == [Action.PTZ]
+
+    # 移动侦测传感器已合并进摄像头，不单独展示
+    motion = siblings[1]
+    assert map_entity(motion, None, None, {}, siblings=[state]) is None
+
+
+def test_camera_without_ptz_buttons_has_no_ptz():
+    state = {"entity_id": "camera.door", "state": "idle", "attributes": {}}
+    doorbell_unknown = {
+        "entity_id": "event.door",
+        "state": "unknown",
+        "attributes": {"device_class": "doorbell"},
+    }
+    result = map_entity(state, None, None, {}, siblings=[doorbell_unknown])
+    assert result.capabilities == []
+    assert result.state["last_ring"] is None
+
+
+@pytest.mark.parametrize("params", [{}, {"direction": "forward"}])
+def test_ptz_direction_validated(params):
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError):
+        Command(action=Action.PTZ, params=params)

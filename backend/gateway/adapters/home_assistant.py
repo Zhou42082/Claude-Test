@@ -19,7 +19,7 @@ import httpx
 from websockets.asyncio.client import ClientConnection, connect
 from websockets.exceptions import ConnectionClosed
 
-from ..models import Command, Device, DeviceEvent
+from ..models import Action, Command, Device, DeviceEvent
 from .base import AdapterError, DeviceAdapter, DeviceNotFound, EventCallback, MediaContent
 from .ha_mapping import command_to_service, map_entity
 
@@ -80,16 +80,30 @@ class HomeAssistantAdapter(DeviceAdapter):
     async def execute(self, native_id: str, command: Command) -> None:
         if native_id not in self._mapped:
             raise DeviceNotFound(native_id)
-        domain, service, data = command_to_service(native_id, command)
+        if command.action == Action.PTZ:
+            # 云台由同一设备下的按钮实体控制，按一次转动一步
+            target = self._sibling_with_key(native_id, f"ptz_{command.params['direction']}")
+            if target is None:
+                raise AdapterError("该摄像头不支持这个方向")
+            domain, service, data = "button", "press", {}
+        else:
+            target = native_id
+            domain, service, data = command_to_service(native_id, command)
         await self._request(
             {
                 "type": "call_service",
                 "domain": domain,
                 "service": service,
                 "service_data": data,
-                "target": {"entity_id": native_id},
+                "target": {"entity_id": target},
             }
         )
+
+    def _sibling_with_key(self, entity_id: str, translation_key: str) -> str | None:
+        for other in self._same_device(entity_id) - {entity_id}:
+            if (self._entities.get(other) or {}).get("translation_key") == translation_key:
+                return other
+        return None
 
     async def snapshot(self, native_id: str) -> MediaContent:
         self._require_camera(native_id)
@@ -251,7 +265,11 @@ class HomeAssistantAdapter(DeviceAdapter):
             return
         entity = self._entities.get(entity_id)
         device_entry = self._devices.get(entity.get("device_id")) if entity else None
-        siblings = [self._states[e] for e in self._same_device(entity_id) - {entity_id} if e in self._states]
+        siblings = [
+            {**self._states[e], "translation_key": (self._entities.get(e) or {}).get("translation_key")}
+            for e in self._same_device(entity_id) - {entity_id}
+            if e in self._states
+        ]
         device = map_entity(state, entity, device_entry, self._areas, self.name, siblings)
 
         old = self._mapped.get(entity_id)

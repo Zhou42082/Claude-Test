@@ -22,11 +22,11 @@ class CapabilityError(Exception):
 
 
 class DeviceHub:
-    def __init__(self, adapters: list[DeviceAdapter]) -> None:
+    def __init__(self, adapters: list[DeviceAdapter], alert_log: AlertLog | None = None) -> None:
         self._adapters = {a.name: a for a in adapters}
         self._devices: dict[str, Device] = {}
         self._subscribers: set[asyncio.Queue[Message | None]] = set()
-        self._alerts = AlertLog()
+        self._alerts = alert_log or AlertLog()
 
     async def start(self) -> None:
         for adapter in self._adapters.values():
@@ -37,6 +37,7 @@ class DeviceHub:
     async def stop(self) -> None:
         for adapter in self._adapters.values():
             await adapter.stop()
+        self._alerts.close()
 
     def list_devices(self) -> list[Device]:
         return sorted(self._devices.values(), key=lambda d: (d.room or "￿", d.name))
@@ -74,6 +75,20 @@ class DeviceHub:
                 return media
         return None
 
+    def demo_scenarios(self) -> list[dict[str, str]]:
+        return [
+            {"id": f"{adapter.name}:{key}", "name": name}
+            for adapter in self._adapters.values()
+            for key, name in adapter.demo_scenarios().items()
+        ]
+
+    async def run_demo(self, scenario_id: str) -> None:
+        adapter_name, _, key = scenario_id.partition(":")
+        adapter = self._adapters.get(adapter_name)
+        if adapter is None or key not in adapter.demo_scenarios():
+            raise DeviceNotFound(scenario_id)
+        await adapter.run_demo(key)
+
     def _route(self, device_id: str) -> tuple[DeviceAdapter, str]:
         adapter_name, native_id = device_id.split(":", 1)
         return self._adapters[adapter_name], native_id
@@ -101,9 +116,9 @@ class DeviceHub:
             old = self._devices.get(event.device.id)
             self._devices[event.device.id] = event.device
             for level, message in detect_alerts(old, event.device):
-                alert = self._alerts.add(event.device, level, message)
-                log.info("告警 [%s] %s：%s", level, event.device.name, message)
-                alerts.append(alert)
+                if alert := self._alerts.add(event.device, level, message):
+                    log.info("告警 [%s] %s：%s", level, event.device.name, message)
+                    alerts.append(alert)
         self._broadcast(event)
         for alert in alerts:
             self._broadcast(AlertEvent(alert=alert))

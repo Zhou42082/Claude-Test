@@ -4,8 +4,10 @@ import 'package:provider/provider.dart';
 import '../models/alert.dart';
 import '../models/device.dart';
 import '../state/device_store.dart';
+import '../widgets/snack_bar_ext.dart';
 import '../widgets/device_card.dart';
 import 'alerts_screen.dart';
+import 'demo_screen.dart';
 import 'settings_screen.dart';
 
 const _allRooms = '全部';
@@ -36,13 +38,13 @@ class _HomeScreenState extends State<HomeScreen> {
     if (!mounted) return;
     final messenger = ScaffoldMessenger.of(context);
     final error = _store.takeError();
-    if (error != null) messenger.showSnackBar(SnackBar(content: Text(error)));
+    if (error != null) messenger.showLatest(SnackBar(content: Text(error)));
 
     final alert = _store.takeIncomingAlert();
     if (alert != null) {
       final scheme = Theme.of(context).colorScheme;
       final critical = alert.level == AlertLevel.critical;
-      messenger.showSnackBar(
+      messenger.showLatest(
         SnackBar(
           backgroundColor: critical ? scheme.error : null,
           duration: Duration(seconds: critical ? 10 : 4),
@@ -78,6 +80,13 @@ class _HomeScreenState extends State<HomeScreen> {
         appBar: AppBar(
           title: const Text('我的家'),
           actions: [
+            if (store.demoScenarios.isNotEmpty)
+              IconButton(
+                tooltip: '演示工具',
+                icon: const Icon(Icons.science_outlined),
+                onPressed: () =>
+                    Navigator.of(context).push(MaterialPageRoute(builder: (_) => const DemoScreen())),
+              ),
             IconButton(
               tooltip: '告警',
               onPressed: _openAlerts,
@@ -216,7 +225,7 @@ class _SceneBar extends StatelessWidget {
   Future<void> _run(BuildContext context, Device scene) async {
     final messenger = ScaffoldMessenger.of(context);
     if (await context.read<DeviceStore>().send(scene, DeviceAction.activate)) {
-      messenger.showSnackBar(SnackBar(content: Text('已执行「${scene.name}」')));
+      messenger.showLatest(SnackBar(content: Text('已执行「${scene.name}」')));
     }
   }
 

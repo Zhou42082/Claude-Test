@@ -9,6 +9,8 @@ POST /api/devices/{id}/stream        摄像头实时视频，返回 {"url": "/ap
 GET  /api/hls/...                    HLS 代理（无需鉴权，地址中带一次性令牌）
 GET  /api/rooms                      房间列表
 GET  /api/alerts?limit=50            最近的告警（最新在前）
+GET  /api/demo                       演示场景列表（仅演示模式，否则为空）
+POST /api/demo/{id}                  触发演示场景（模拟漏水、门铃等）
 WS   /api/ws?token=...               推送：先发 snapshot（设备 + 最近告警），之后发 device_updated / device_removed / alert
 """
 
@@ -19,13 +21,16 @@ import secrets
 import time
 from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager, contextmanager
+from pathlib import Path
 from typing import Annotated, Any
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Response, WebSocket, WebSocketDisconnect, status
+from fastapi.staticfiles import StaticFiles
 
 from .adapters.base import AdapterError, DeviceAdapter, DeviceNotFound
 from .adapters.home_assistant import HomeAssistantAdapter
 from .adapters.mock import MockAdapter
+from .alerts import AlertLog
 from .config import Settings
 from .hub import CapabilityError, DeviceHub
 from .models import SENSITIVE_ACTIONS, Alert, Command, Device
@@ -86,11 +91,19 @@ def _http_errors() -> Iterator[None]:
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(exc)) from None
 
 
+def build_alert_log(settings: Settings) -> AlertLog:
+    if not settings.data_dir:
+        return AlertLog()
+    data_dir = Path(settings.data_dir)
+    data_dir.mkdir(parents=True, exist_ok=True)
+    return AlertLog(str(data_dir / "gateway.db"))
+
+
 def create_app(settings: Settings | None = None, adapters: list[DeviceAdapter] | None = None) -> FastAPI:
     settings = settings or Settings()
     if not settings.token:
         raise RuntimeError("必须设置 GATEWAY_TOKEN")
-    hub = DeviceHub(adapters if adapters is not None else build_adapters(settings))
+    hub = DeviceHub(adapters if adapters is not None else build_adapters(settings), build_alert_log(settings))
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
@@ -166,6 +179,16 @@ def create_app(settings: Settings | None = None, adapters: list[DeviceAdapter] |
     async def alerts(limit: int = 50) -> list[Alert]:
         return hub.alerts(max(1, min(limit, 200)))
 
+    @app.get("/api/demo", dependencies=auth)
+    async def demo_scenarios() -> list[dict[str, str]]:
+        return hub.demo_scenarios()
+
+    @app.post("/api/demo/{scenario_id}", dependencies=auth, status_code=202)
+    async def run_demo(scenario_id: str) -> dict[str, str]:
+        with _http_errors():
+            await hub.run_demo(scenario_id)
+        return {"status": "accepted"}
+
     @app.websocket("/api/ws")
     async def events(ws: WebSocket, token: str | None = None) -> None:
         if not token_ok(token):
@@ -188,6 +211,13 @@ def create_app(settings: Settings | None = None, adapters: list[DeviceAdapter] |
             pass
         finally:
             hub.unsubscribe(queue)
+
+    # 网页版 App：放在所有 /api 路由之后挂载，只处理剩下的路径
+    if settings.web_dir:
+        web_dir = Path(settings.web_dir)
+        if not (web_dir / "index.html").is_file():
+            raise RuntimeError(f"GATEWAY_WEB_DIR={web_dir} 中没有 index.html，请先 flutter build web")
+        app.mount("/", StaticFiles(directory=web_dir, html=True), name="web")
 
     return app
 

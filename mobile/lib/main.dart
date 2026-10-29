@@ -1,22 +1,27 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:provider/provider.dart';
 
 import 'screens/home_screen.dart';
 import 'screens/settings_screen.dart';
 import 'state/device_store.dart';
 import 'state/settings_store.dart';
+import 'web_fonts.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   final settings = SettingsStore();
-  await settings.load();
-  runApp(SmartHomeApp(settings: settings));
+  final (_, webFontLoaded) = await (settings.load(), loadWebFonts()).wait;
+  runApp(SmartHomeApp(settings: settings, fontFamily: webFontLoaded ? webFontFamily : null));
 }
 
 class SmartHomeApp extends StatelessWidget {
-  const SmartHomeApp({super.key, required this.settings, this.deviceStore});
+  const SmartHomeApp({super.key, required this.settings, this.deviceStore, this.fontFamily});
 
   final SettingsStore settings;
+
+  /// 网页版加载的中文字体；手机上用系统字体
+  final String? fontFamily;
 
   /// 测试时可注入
   final DeviceStore? deviceStore;
@@ -29,7 +34,9 @@ class SmartHomeApp extends StatelessWidget {
         ChangeNotifierProvider.value(value: settings),
         ChangeNotifierProvider(
           create: (_) {
-            final store = deviceStore ?? DeviceStore();
+            final store =
+                deviceStore ??
+                DeviceStore(alertsSeenUntil: settings.alertsSeenUntil, onAlertsSeen: settings.saveAlertsSeen);
             if (deviceStore == null && settings.config.isComplete) store.connect(settings.config);
             return store;
           },
@@ -38,8 +45,17 @@ class SmartHomeApp extends StatelessWidget {
       child: MaterialApp(
         title: '智能家居',
         debugShowCheckedModeBanner: false,
-        theme: ThemeData(colorSchemeSeed: seed, useMaterial3: true),
-        darkTheme: ThemeData(colorSchemeSeed: seed, brightness: Brightness.dark, useMaterial3: true),
+        // 系统控件（返回按钮、对话框按钮、日期等）使用中文
+        locale: const Locale('zh', 'CN'),
+        supportedLocales: const [Locale('zh', 'CN')],
+        localizationsDelegates: GlobalMaterialLocalizations.delegates,
+        theme: ThemeData(colorSchemeSeed: seed, useMaterial3: true, fontFamily: fontFamily),
+        darkTheme: ThemeData(
+          colorSchemeSeed: seed,
+          brightness: Brightness.dark,
+          useMaterial3: true,
+          fontFamily: fontFamily,
+        ),
         home: Consumer<SettingsStore>(
           builder: (_, s, _) =>
               s.config.isComplete ? const HomeScreen() : const SettingsScreen(firstRun: true),

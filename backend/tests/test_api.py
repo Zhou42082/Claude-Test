@@ -186,3 +186,49 @@ def test_unlock_raises_alert_pushed_over_websocket(pin_client):
     with pin_client.websocket_connect(f"/api/ws?token={TOKEN}") as ws:
         # 重连后的快照里带着最近告警
         assert ws.receive_json()["alerts"][0]["message"] == "门锁已打开"
+
+
+def test_demo_scenarios_trigger_alerts_and_reset(client):
+    scenarios = {s["id"]: s["name"] for s in client.get("/api/demo", headers=AUTH).json()}
+    assert scenarios["mock:leak"] == "厨房漏水"
+    assert "mock:reset" in scenarios
+
+    for scenario in ("mock:leak", "mock:doorbell", "mock:lock_jam", "mock:low_battery"):
+        assert client.post(f"/api/demo/{scenario}", headers=AUTH).status_code == 202
+    messages = [a["message"] for a in client.get("/api/alerts", headers=AUTH).json()]
+    assert messages == ["电量低（15%），请更换电池或充电", "门锁卡住，请检查", "有人按门铃", "检测到漏水"]
+
+    assert client.post("/api/demo/mock:reset", headers=AUTH).status_code == 202
+    devices = {d["id"]: d for d in client.get("/api/devices", headers=AUTH).json()}
+    assert devices["mock:kitchen_leak"]["state"]["on"] is False
+    assert devices["mock:entrance_lock"]["state"]["lock_state"] == "locked"
+    assert client.post("/api/demo/mock:nope", headers=AUTH).status_code == 404
+    assert client.get("/api/demo").status_code == 401
+
+
+def test_ptz_moves_demo_camera(client):
+    before = client.get("/api/devices/mock:entrance_cam/snapshot", headers=AUTH).content
+    assert command(client, "mock:entrance_cam", "ptz", direction="left").status_code == 202
+    after = client.get("/api/devices/mock:entrance_cam/snapshot", headers=AUTH).content
+    assert before != after
+    assert command(client, "mock:entrance_cam", "ptz", direction="forward").status_code == 422
+
+
+def test_alerts_survive_restart(tmp_path):
+    settings = Settings(token=TOKEN, adapters=("mock",), data_dir=str(tmp_path))
+    with TestClient(create_app(settings, adapters=[MockAdapter()])) as c:
+        c.post("/api/demo/mock:smoke", headers=AUTH)
+    with TestClient(create_app(settings, adapters=[MockAdapter()])) as c:
+        assert [a["message"] for a in c.get("/api/alerts", headers=AUTH).json()] == ["检测到烟雾"]
+
+
+def test_serves_web_app_without_shadowing_api(tmp_path):
+    (tmp_path / "index.html").write_text("<html>smart home</html>")
+    settings = Settings(token=TOKEN, adapters=("mock",), web_dir=str(tmp_path))
+    with TestClient(create_app(settings, adapters=[MockAdapter()])) as c:
+        assert "smart home" in c.get("/").text
+        assert c.get("/api/devices").status_code == 401
+        assert c.get("/api/health").json() == {"status": "ok"}
+
+    with pytest.raises(RuntimeError, match="index.html"):
+        create_app(Settings(token=TOKEN, web_dir=str(tmp_path / "missing")), adapters=[MockAdapter()])

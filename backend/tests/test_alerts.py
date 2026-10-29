@@ -58,9 +58,47 @@ def test_low_battery_and_filter_alert_once_when_crossing():
 
 
 def test_alert_log_keeps_newest_first_and_bounded():
-    log = AlertLog(maxlen=3)
+    log = AlertLog(keep=3)
     d = device(DeviceType.LOCK)
     for i in range(5):
         log.add(d, AlertLevel.INFO, f"m{i}")
     assert [a.message for a in log.recent()] == ["m4", "m3", "m2"]
     assert [a.id for a in log.recent(2)] == [5, 4]
+
+
+def test_doorbell_and_motion():
+    idle = device(DeviceType.CAMERA, last_ring=None, motion=False)
+    rang = device(DeviceType.CAMERA, last_ring="2026-10-29T10:00:00+00:00", motion=False)
+    assert detect_alerts(idle, rang) == [(AlertLevel.WARNING, "有人按门铃")]
+    assert detect_alerts(rang, rang) == []
+    moving = device(DeviceType.CAMERA, motion=True)
+    assert detect_alerts(idle, moving) == [(AlertLevel.INFO, "检测到移动")]
+
+
+def test_motion_alert_cooldown_per_device():
+    log = AlertLog()
+    cam, other = (
+        device(DeviceType.CAMERA),
+        Device(id="x:2", name="后门", type=DeviceType.CAMERA, platform=Platform.OTHER),
+    )
+    assert log.add(cam, AlertLevel.INFO, "检测到移动") is not None
+    assert log.add(cam, AlertLevel.INFO, "检测到移动") is None
+    assert log.add(other, AlertLevel.INFO, "检测到移动") is not None
+    # 其他消息不受冷却影响
+    assert log.add(cam, AlertLevel.WARNING, "有人按门铃") is not None
+    assert log.add(cam, AlertLevel.WARNING, "有人按门铃") is not None
+
+
+def test_alert_log_persists_to_disk(tmp_path):
+    path = str(tmp_path / "gateway.db")
+    log = AlertLog(path)
+    log.add(device(DeviceType.LOCK), AlertLevel.CRITICAL, "门锁卡住，请检查")
+    log.close()
+
+    reopened = AlertLog(path)
+    [alert] = reopened.recent()
+    assert alert.message == "门锁卡住，请检查"
+    assert alert.level == AlertLevel.CRITICAL
+    assert alert.time.tzinfo is not None
+    # 新告警的 ID 接着往后排
+    assert reopened.add(device(DeviceType.LOCK), AlertLevel.INFO, "门锁已打开").id == alert.id + 1

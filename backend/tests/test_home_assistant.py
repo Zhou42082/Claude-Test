@@ -182,6 +182,12 @@ HOME_REGISTRY = {
         {"entity_id": "fan.purifier", "platform": "tuya", "device_id": "p1"},
         {"entity_id": "sensor.purifier_pm25", "platform": "tuya", "device_id": "p1"},
         {"entity_id": "camera.door", "platform": "imou_life", "device_id": "c1"},
+        {
+            "entity_id": "button.door_ptz_up",
+            "platform": "imou_life",
+            "device_id": "c1",
+            "translation_key": "ptz_up",
+        },
     ],
     "config/device_registry/list": [{"id": "p1", "model": "空气净化器"}, {"id": "c1"}],
     "config/area_registry/list": [],
@@ -189,6 +195,7 @@ HOME_REGISTRY = {
         {"entity_id": "fan.purifier", "state": "on", "attributes": {}},
         {"entity_id": "sensor.purifier_pm25", "state": "30", "attributes": {"device_class": "pm25"}},
         {"entity_id": "camera.door", "state": "idle", "attributes": {"supported_features": 2}},
+        {"entity_id": "button.door_ptz_up", "state": "unknown", "attributes": {}},
     ],
 }
 
@@ -228,6 +235,18 @@ async def test_sibling_sensor_updates_purifier_and_camera_media():
         assert await adapter.fetch_hls("tok123/../../config") is None
         with pytest.raises(DeviceNotFound):
             await adapter.snapshot("fan.purifier")
+
+        # 云台：按下同一设备下对应方向的按钮实体
+        assert devices["ha:camera.door"].state["ptz_directions"] == ["up"]
+        await adapter.execute("camera.door", Command(action=Action.PTZ, params={"direction": "up"}))
+        call = fake.service_calls[-1]
+        assert (call["domain"], call["service"], call["target"]) == (
+            "button",
+            "press",
+            {"entity_id": "button.door_ptz_up"},
+        )
+        with pytest.raises(AdapterError):
+            await adapter.execute("camera.door", Command(action=Action.PTZ, params={"direction": "down"}))
     finally:
         await adapter.stop()
         server.close()
