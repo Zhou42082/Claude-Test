@@ -20,17 +20,37 @@ App 中按房间、按平台浏览设备，完成开关、调光、空调、窗�
 | --- | --- | --- | --- |
 | 小米 | 有官方 HA 集成 | Home Assistant 安装小米官方集成 [XiaoMi/ha_xiaomi_home](https://github.com/XiaoMi/ha_xiaomi_home)，用小米账号 OAuth 登录；有小米中枢网关时可局域网控制 | 低 |
 | 涂鸦 | 开放程度最高 | HA 内置 `tuya` 集成，用「智能生活」App 扫码登录，不需要涂鸦开发者账号；需要本地控制可用社区的 `tuya-local` | 低 |
-| 华为 | **没有面向第三方的设备控制接口** | 见下文 | **高** |
+| 华为 | **没有官方的第三方控制接口**，有活跃的社区集成 | 社区 HA 集成 `huawei_smarthome`（见下文） | **中高** |
 
 ### 华为的情况
 
-- 华为智慧生活开放平台（HiLink）面向**设备厂商**：它让厂商把自己的设备接进华为生态，而不是让第三方 App 从华为生态里读取、控制设备。个人或普通企业开发者拿不到「列出我家华为设备并控制」的接口。
-- 可行的路线（按推荐顺序）：
-  1. **Matter**：设备本身支持 Matter 时，通过 HA 的 Matter 集成接入（`docker-compose.yml` 已包含 Matter Server）。每个型号是否支持 Matter 需要单独确认。
-  2. **品牌自有通道**：很多「HiLink 设备」其实是第三方品牌（照明、插座、窗帘电机等），品牌自己的云或 App 可能有 HA 集成，或同款设备有米家 / 涂鸦版本。
-  3. **替换方案**：空调、电视等可用红外遥控器、智能插座间接控制。
-  4. 不建议：逆向华为私有协议。违反服务条款，且随时可能失效。
-- **建议**：开发前先列出家里（或目标用户）的华为设备清单，逐个型号确认走哪条路线。网关会根据 HA 中的设备厂商名（`HUAWEI`）把这些设备标记为「华为」。
+华为智慧生活开放平台（HiLink）面向**设备厂商**：它让厂商把自己的设备接进华为生态，而不是让第三方 App 从华为生态里读取、控制设备。官方渠道拿不到「列出我家华为设备并控制」的接口。
+
+GitHub 上的社区方案（2026-10 调研）：
+
+| 项目 | 原理 | 覆盖 | 状态 | 适用性 |
+| --- | --- | --- | --- | --- |
+| [xiasi0/ha-huawei-smarthome](https://github.com/xiasi0/ha-huawei-smarthome) | HA 自定义集成。华为账号密码登录（支持短信 / 设备挑战码二次验证），走华为云，MQTT 接收状态推送（`cloud_push`） | 204 个型号，按 prodId 逐个适配：灯、开关、插座、窗帘、传感器、空调、门锁、智慧屏、音箱等 | 活跃（2026-10-27 仍在发版），GPL-3.0，标注 Experimental | **首选**。网关已按集成名 `huawei_smarthome` 把它的设备归为华为 |
+| [0xlic/ha-huawei-hilink-opple](https://github.com/0xlic/ha-huawei-hilink-opple) | HA 集成，局域网 UDP 5686，HiLink 本地协议（CoAP + AES-CBC + HMAC-SHA256）。authCode 用辅助工具从华为账号获取一次 | 仅验证欧普 MX420 / MX480 吸顶灯 | 个人项目，极早期 | 只说明 HiLink 设备存在本地协议；可作为本地控制的参考实现 |
+| ha_hwhomebridge 系列（如 [Huoberber/ha_hwhomebridge](https://github.com/Huoberber/ha_hwhomebridge)） | **方向相反**：把 HA 里的设备接进华为智慧生活 / 小艺。依赖闭源 .so 和 HiLink SDK | — | 原仓库已删除，现存的都是 fork | 不解决本项目的问题；如果以后想让华为 App / 小艺也能控制小米、涂鸦设备，可以参考 |
+
+另外，GitHub 上大量名为 "hilink" 的 Python / Go 库是华为 **4G 上网卡、路由器** 的接口，与智能家居无关。
+
+**使用 `ha-huawei-smarthome` 的风险**
+
+- 非官方、未经华为授权，作者声明仅供学习研究、**不得商用**。本项目如果做成商业产品，不能依赖它，需要走 Matter 或与华为洽谈生态合作。
+- 用账号密码登录华为云，华为调整接口或风控时可能失效，存在账号被限制的风险。
+- 只有已写适配器的型号才会出现，接入前先在其 [supported-devices.md](https://github.com/xiasi0/ha-huawei-smarthome/blob/master/docs/supported-devices.md) 中按 prodId 核对自家设备。不在列表里的设备需要自己写适配器（`device_adapters/prod_<prodId>.py`）。
+- 依赖华为云，外网断开时无法控制。
+
+**接入路线（按推荐顺序）**
+
+1. **ha-huawei-smarthome**：自用 / 家庭场景首选，覆盖面最大。
+2. **Matter**：设备本身支持 Matter 时，通过 HA 的 Matter 集成接入（`docker-compose.yml` 已包含 Matter Server），完全本地、官方协议。每个型号需单独确认。
+3. **品牌自有通道**：很多 HiLink 设备是第三方品牌（欧普、杜亚、领普等），品牌可能有自己的 HA 集成，或同款设备有米家 / 涂鸦版本。
+4. **替换方案**：空调、电视等可用红外遥控器、智能插座间接控制。
+
+**建议**：先列出家里（或目标用户）的华为设备清单，对照上面的设备列表逐个确认路线。
 
 ## 3. 总体架构
 
@@ -49,6 +69,7 @@ flowchart LR
     subgraph Cloud[厂商云]
         MiCloud[小米云]
         TuyaCloud[涂鸦云]
+        HwCloud[华为云]
     end
 
     App -- REST 下发命令 --> GW
@@ -56,6 +77,7 @@ flowchart LR
     GW -- HA WebSocket API --> HA
     HA -- xiaomi_home 集成 --> MiCloud
     HA -- tuya 集成 --> TuyaCloud
+    HA -- huawei_smarthome 社区集成 --> HwCloud
     HA -- 局域网 --> MiHub[小米中枢网关]
     HA --> MS -- Matter --> HW[华为 / 其他 Matter 设备]
 ```

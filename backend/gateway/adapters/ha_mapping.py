@@ -7,8 +7,12 @@ from typing import Any
 from ..models import Action, Command, Device, DeviceType, Platform
 
 # 设备来源判断：优先看实体所属的 HA 集成，其次看设备厂商。
-# 华为设备一般通过 Matter / HomeKit 等通用协议接入，集成名无法区分品牌，只能靠厂商名。
+# 华为设备走 Matter / HomeKit 等通用协议时，集成名无法区分品牌，只能靠厂商名。
 INTEGRATION_PLATFORMS: dict[str, Platform] = {
+    # 社区集成，华为账号登录走华为云 github.com/xiasi0/ha-huawei-smarthome
+    # 华为智慧生活里的设备很多是第三方品牌（欧普、杜亚等），厂商名判断不出来，必须按集成名归类
+    "huawei_smarthome": Platform.HUAWEI,
+    "huawei_hilink_opple": Platform.HUAWEI,  # 欧普 HiLink 吸顶灯局域网控制 github.com/0xlic/ha-huawei-hilink-opple
     "xiaomi_home": Platform.XIAOMI,  # 小米官方集成 github.com/XiaoMi/ha_xiaomi_home
     "xiaomi_miot": Platform.XIAOMI,
     "xiaomi_miio": Platform.XIAOMI,

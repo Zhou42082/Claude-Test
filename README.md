@@ -37,7 +37,7 @@ cd mobile && flutter run
 3. 在 HA 中添加集成：
    - 小米：通过 HACS 或手动安装 [Xiaomi Home](https://github.com/XiaoMi/ha_xiaomi_home)，用小米账号登录；
    - 涂鸦：设置 → 设备与服务 → 添加 `Tuya`，用「智能生活」App 扫码；
-   - 华为：支持 Matter 的设备用 `Matter` 集成配对，其他情况见 `docs/architecture.md` 第 2 节。
+   - 华为：通过 HACS 安装社区集成 [Huawei SmartHome](https://github.com/xiasi0/ha-huawei-smarthome)，用华为账号登录（非官方，不可商用，先核对设备是否在其支持列表中）；支持 Matter 的设备也可用 `Matter` 集成配对。详见 `docs/architecture.md` 第 2 节。
 4. 在 HA 中给设备分配区域（即 App 中的房间），生成长期访问令牌填入 `.env` 的 `HA_TOKEN`。
 5. `docker compose up -d gateway`。
 

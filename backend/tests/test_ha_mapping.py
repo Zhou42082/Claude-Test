@@ -47,6 +47,7 @@ def test_onoff_light_has_no_brightness():
         ("tuya", None, Platform.TUYA),
         ("xiaomi_miot", None, Platform.XIAOMI),
         ("matter", "HUAWEI", Platform.HUAWEI),
+        ("huawei_smarthome", "欧普照明", Platform.HUAWEI),
         ("matter", "Signify", Platform.OTHER),
         (None, None, Platform.OTHER),
     ],
