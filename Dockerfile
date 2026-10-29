@@ -19,4 +19,5 @@ ENV GATEWAY_WEB_DIR=/app/web \
     GATEWAY_DATA_DIR=/data
 VOLUME /data
 EXPOSE 8000
-CMD ["uvicorn", "gateway.main:app", "--factory", "--host", "0.0.0.0", "--port", "8000"]
+# 云平台（Render、Railway、Zeabur 等）通过 PORT 环境变量指定端口，本地默认 8000
+CMD ["sh", "-c", "exec uvicorn gateway.main:app --factory --host 0.0.0.0 --port ${PORT:-8000}"]

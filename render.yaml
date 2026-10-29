@@ -1,0 +1,21 @@
+# Render 部署蓝图：演示模式（不需要 Home Assistant 和真实设备）
+# Render 控制台 → New → Blueprint → 选择本仓库和分支，部署时填写 GATEWAY_TOKEN
+services:
+  - type: web
+    name: smarthome-demo
+    runtime: docker
+    plan: free
+    # 离国内最近的区域
+    region: singapore
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /api/health
+    envVars:
+      # App 登录用的令牌，部署时自己设置；网址是公开的，不要用 devtoken 这种容易猜的值
+      - key: GATEWAY_TOKEN
+        sync: false
+      - key: GATEWAY_ADAPTERS
+        value: mock
+      # 演示门锁的开锁 PIN
+      - key: GATEWAY_UNLOCK_PIN
+        value: "2468"
