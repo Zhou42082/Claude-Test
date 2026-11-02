@@ -127,6 +127,14 @@ class Device {
     _ => state['on'] == true,
   };
 
+  /// 需要立刻注意的状态：漏水 / 烟雾 / 燃气报警、门锁卡住
+  bool get isAlarm => switch (type) {
+    DeviceType.binarySensor =>
+      state['on'] == true && const {'moisture', 'smoke', 'gas'}.contains(state['device_class']),
+    DeviceType.lock => lockState == 'jammed',
+    _ => false,
+  };
+
   int? get brightness => _num('brightness')?.round();
   int? get colorTempKelvin => _num('color_temp_kelvin')?.round();
   double? get currentTemperature => _num('current_temperature')?.toDouble();

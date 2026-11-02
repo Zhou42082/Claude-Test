@@ -2,12 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:provider/provider.dart';
 
-import 'screens/home_screen.dart';
+import 'screens/app_shell.dart';
 import 'screens/settings_screen.dart';
 import 'state/device_store.dart';
 import 'state/settings_store.dart';
 import 'demo_only.dart';
 import 'services/gateway_client.dart';
+import 'theme/app_theme.dart';
 import 'web_fonts.dart';
 
 Future<void> main() async {
@@ -31,7 +32,6 @@ class SmartHomeApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const seed = Color(0xFF2E7D6B);
     return MultiProvider(
       providers: [
         ChangeNotifierProvider.value(value: settings),
@@ -52,16 +52,10 @@ class SmartHomeApp extends StatelessWidget {
         locale: const Locale('zh', 'CN'),
         supportedLocales: const [Locale('zh', 'CN')],
         localizationsDelegates: GlobalMaterialLocalizations.delegates,
-        theme: ThemeData(colorSchemeSeed: seed, useMaterial3: true, fontFamily: fontFamily),
-        darkTheme: ThemeData(
-          colorSchemeSeed: seed,
-          brightness: Brightness.dark,
-          useMaterial3: true,
-          fontFamily: fontFamily,
-        ),
+        theme: AppTheme.light(fontFamily: fontFamily),
+        darkTheme: AppTheme.dark(fontFamily: fontFamily),
         home: Consumer<SettingsStore>(
-          builder: (_, s, _) =>
-              s.config.isComplete ? const HomeScreen() : const SettingsScreen(firstRun: true),
+          builder: (_, s, _) => s.config.isComplete ? const AppShell() : const SettingsScreen(firstRun: true),
         ),
       ),
     );

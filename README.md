@@ -13,9 +13,9 @@ Flutter App  ──REST / WebSocket──▶  统一网关 (FastAPI)  ──▶ 
 
 <p>
   <img src="docs/screenshots/home.png" width="200" alt="首页">
-  <img src="docs/screenshots/camera.png" width="200" alt="摄像头与云台">
-  <img src="docs/screenshots/lock.png" width="200" alt="门锁">
+  <img src="docs/screenshots/device.png" width="200" alt="设备控制面板">
   <img src="docs/screenshots/alerts.png" width="200" alt="告警">
+  <img src="docs/screenshots/home-dark.png" width="200" alt="深色模式">
 </p>
 
 ## 快速体验（演示模式，不需要真实设备）

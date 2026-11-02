@@ -109,6 +109,42 @@ class DeviceStore extends ChangeNotifier {
 
   Device? device(String id) => _devices[id];
 
+  /// 首页概览：室内环境与设备概况
+  HomeSummary get summary {
+    final devices = _devices.values.where((d) => d.type != DeviceType.scene).toList();
+    num? sensor(String deviceClass) {
+      for (final d in devices) {
+        final value = d.state['value'];
+        if (d.online &&
+            d.type == DeviceType.sensor &&
+            d.state['device_class'] == deviceClass &&
+            value is num) {
+          return value;
+        }
+      }
+      return null;
+    }
+
+    final purifierPm25 = devices.where((d) => d.online && d.pm25 != null).map((d) => d.pm25).firstOrNull;
+    return HomeSummary(
+      temperature: sensor('temperature')?.toDouble(),
+      humidity: sensor('humidity')?.toDouble(),
+      pm25: purifierPm25 ?? sensor('pm25')?.toDouble(),
+      total: devices.length,
+      online: devices.where((d) => d.online).length,
+      active: devices
+          .where((d) => d.online && d.isOn && (d.hasPowerSwitch || d.type == DeviceType.climate))
+          .length,
+      alarms: devices.where((d) => d.online && d.isAlarm).length,
+      urgentAlerts: _alerts.where((a) => a.level != AlertLevel.info && _isUnread(a)).length,
+    );
+  }
+
+  bool _isUnread(GatewayAlert alert) {
+    final seen = _alertsSeenUntil;
+    return seen == null || alert.time.isAfter(seen);
+  }
+
   List<String> get rooms {
     final set = {
       for (final d in _devices.values)
@@ -267,4 +303,34 @@ class DeviceStore extends ChangeNotifier {
     _teardown();
     super.dispose();
   }
+}
+
+class HomeSummary {
+  const HomeSummary({
+    required this.total,
+    required this.online,
+    required this.active,
+    required this.alarms,
+    required this.urgentAlerts,
+    this.temperature,
+    this.humidity,
+    this.pm25,
+  });
+
+  final double? temperature;
+  final double? humidity;
+  final double? pm25;
+  final int total;
+  final int online;
+
+  /// 正在运行的灯、开关、空调等
+  final int active;
+
+  /// 正处于报警状态的设备
+  final int alarms;
+
+  /// 未读的警告 / 紧急告警
+  final int urgentAlerts;
+
+  bool get allGood => alarms == 0 && urgentAlerts == 0 && online == total;
 }

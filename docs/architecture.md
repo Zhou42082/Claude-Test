@@ -144,8 +144,9 @@ mobile/                  Flutter App（Android / iOS / 网页版）
     services/gateway_client.dart REST / WebSocket 客户端
     state/device_store.dart     设备状态、告警、断线重连、命令下发
     state/settings_store.dart   网关地址、令牌（安全存储）、告警已读位置
-    screens/                    首页、告警、演示工具、摄像头实时画面、设置
-    widgets/                    设备卡片、控制面板、门锁、摄像头（截图 + 云台）、净化器
+    theme/app_theme.dart        「温暖居家」主题：配色、圆角、每类设备的强调色，支持深色模式
+    screens/                    底部导航框架、首页、场景、告警、我的、演示工具、摄像头实时画面、设置
+    widgets/                    设备卡片、场景按钮、控制面板、门锁、摄像头（截图 + 云台）、净化器
     web_fonts.dart              网页版中文字体加载
     demo/demo_gateway.dart      内置演示网关（不需要服务器；与网关的演示模式保持一致）
   web/                          网页版入口；字体与 CanvasKit 本地化，不依赖 Google CDN
@@ -242,7 +243,7 @@ WebSocket 消息：连接后先收到 `{"type": "snapshot", "devices": [...], "a
 | 有人按门铃（摄像头同一设备下的门铃事件实体） | 警告 |
 | 摄像头检测到移动（同一设备 5 分钟内只告警一次） | 提示 |
 
-规则在 `backend/gateway/alerts.py`。设置 `GATEWAY_DATA_DIR` 后告警保存在 `gateway.db`（SQLite，保留最近 1000 条），否则只在内存中。App 收到警告和紧急告警时弹出提示，首页铃铛显示未读数，已读位置保存在手机上。
+规则在 `backend/gateway/alerts.py`。设置 `GATEWAY_DATA_DIR` 后告警保存在 `gateway.db`（SQLite，保留最近 1000 条），否则只在内存中。App 收到警告和紧急告警时弹出提示，底部「告警」标签显示未读数，首页概览卡片提示待处理的告警，已读位置保存在手机上。
 
 **摄像头合并**：乐橙集成把一台摄像头拆成摄像头、门铃事件、移动侦测传感器和云台按钮（`ptz_up` 等）多个实体，网关把它们合并成一台设备：`state` 中有 `last_ring`、`motion`、`ptz_directions`，`ptz` 命令转成按下对应方向的按钮。
 

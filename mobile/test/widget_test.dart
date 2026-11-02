@@ -108,7 +108,7 @@ void main() {
 
   testWidgets('scene chip runs the scene', (tester) async {
     final (client, _) = await pumpWithDevices(tester, [lamp(), awayScene()]);
-    await tester.tap(find.widgetWithText(ActionChip, '离家'));
+    await tester.tap(find.text('离家'));
     await tester.pumpAndSettle();
     expect(client.commands.single.$2, 'activate');
     expect(find.text('已执行「离家」'), findsOneWidget);
@@ -177,13 +177,15 @@ void main() {
     await settings.load();
     await tester.pumpWidget(SmartHomeApp(settings: settings));
 
-    await tester.ensureVisible(find.text('体验演示模式'));
+    await tester.scrollUntilVisible(find.text('体验演示模式'), 200, scrollable: find.byType(Scrollable).first);
+    await tester.pumpAndSettle();
     await tester.tap(find.text('体验演示模式'));
     await tester.pumpAndSettle();
 
-    expect(find.textContaining('演示模式：设备和数据都是模拟的'), findsOneWidget);
-    expect(find.text('入户门锁'), findsOneWidget);
+    expect(find.textContaining('演示模式 · 设备和数据都是模拟的'), findsOneWidget);
     expect(find.byTooltip('演示工具'), findsOneWidget);
+    await tester.scrollUntilVisible(find.text('入户门锁'), 200, scrollable: find.byType(Scrollable).first);
+    expect(find.text('入户门锁'), findsOneWidget);
     expect(settings.config.isDemo, isTrue);
   });
 }

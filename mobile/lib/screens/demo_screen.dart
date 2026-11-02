@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 
 import '../services/gateway_client.dart';
 import '../state/device_store.dart';
+import '../theme/app_theme.dart';
 import '../widgets/snack_bar_ext.dart';
 
 /// 演示工具：网关运行在演示模式（GATEWAY_ADAPTERS=mock）时，模拟漏水、门铃等事件，
@@ -10,16 +11,16 @@ import '../widgets/snack_bar_ext.dart';
 class DemoScreen extends StatelessWidget {
   const DemoScreen({super.key});
 
-  static const _icons = {
-    'leak': Icons.water_drop_outlined,
-    'smoke': Icons.local_fire_department_outlined,
-    'doorbell': Icons.doorbell_outlined,
-    'motion': Icons.directions_walk,
-    'lock_jam': Icons.lock_outline,
-    'low_battery': Icons.battery_alert,
-    'filter_low': Icons.air,
-    'camera_offline': Icons.videocam_off_outlined,
-    'reset': Icons.restart_alt,
+  static const _styles = <String, (IconData, Color)>{
+    'leak': (Icons.water_drop_rounded, Color(0xFF3D9BE9)),
+    'smoke': (Icons.local_fire_department_rounded, Color(0xFFE5533D)),
+    'doorbell': (Icons.doorbell_rounded, Color(0xFFE8668C)),
+    'motion': (Icons.directions_walk_rounded, Color(0xFFF2A93B)),
+    'lock_jam': (Icons.lock_rounded, Color(0xFF8B6CEF)),
+    'low_battery': (Icons.battery_alert_rounded, Color(0xFFFF8A5B)),
+    'filter_low': (Icons.air_rounded, Color(0xFF3CBF8A)),
+    'camera_offline': (Icons.videocam_off_rounded, Color(0xFF7E8CA0)),
+    'reset': (Icons.restart_alt_rounded, AppTheme.seed),
   };
 
   Future<void> _run(BuildContext context, DemoScenario scenario) async {
@@ -34,20 +35,42 @@ class DemoScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scenarios = context.select<DeviceStore, List<DemoScenario>>((s) => s.demoScenarios);
+    final theme = Theme.of(context);
     return Scaffold(
       appBar: AppBar(title: const Text('演示工具')),
       body: ListView(
+        padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
         children: [
-          const Padding(
-            padding: EdgeInsets.fromLTRB(16, 16, 16, 8),
-            child: Text('网关正在演示模式下运行。点击下面的事件，模拟设备状态变化，观察首页、告警和设备面板的反应。'),
-          ),
-          for (final s in scenarios)
-            ListTile(
-              leading: Icon(_icons[s.id.split(':').last] ?? Icons.science_outlined),
-              title: Text(s.name),
-              onTap: () => _run(context, s),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(4, 0, 4, 16),
+            child: Text(
+              '点击下面的事件，模拟设备状态变化，然后回到首页、告警页和设备面板看效果。',
+              style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant),
             ),
+          ),
+          Card(
+            clipBehavior: Clip.antiAlias,
+            child: Column(
+              children: [
+                for (final (i, s) in scenarios.indexed) ...[
+                  if (i > 0) const Divider(indent: 68),
+                  Builder(
+                    builder: (context) {
+                      final (icon, color) =
+                          _styles[s.id.split(':').last] ?? (Icons.science_rounded, AppTheme.seed);
+                      return ListTile(
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                        leading: IconBubble(icon: icon, color: color, size: 38),
+                        title: Text(s.name, style: theme.textTheme.titleSmall),
+                        trailing: const Icon(Icons.play_arrow_rounded),
+                        onTap: () => _run(context, s),
+                      );
+                    },
+                  ),
+                ],
+              ],
+            ),
+          ),
         ],
       ),
     );

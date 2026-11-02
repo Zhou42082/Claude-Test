@@ -16,7 +16,8 @@ enum AlertLevel {
   Color color(ColorScheme scheme) => switch (this) {
     info => scheme.primary,
     warning => Colors.orange,
-    critical => scheme.error,
+    // 固定的红色：深色模式下 scheme.error 是浅粉色，上面的白色图标看不清
+    critical => const Color(0xFFE5484D),
   };
 }
 
